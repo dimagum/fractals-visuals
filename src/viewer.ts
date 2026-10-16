@@ -35,6 +35,7 @@ const DENSITY_RANGE: [number, number] = [0.25, 4];
 const SLIDER_MAX = 1000;
 const MANDELBROT = FRACTALS[0]!;
 const PICKER_VIEW: View = { cx: -0.65, cy: 0, span: 2.8 };
+const MODIFIER_LABEL = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 const toSlider = (v: number, [lo, hi]: [number, number]): number =>
@@ -81,6 +82,11 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   const canvas = h('canvas', { class: 'plot-canvas' });
   const gridCanvas = h('canvas', { class: 'plot-grid', 'aria-hidden': 'true' });
   const limitChip = h('span', { class: 'map-chip', hidden: true }, 'Предел точности');
+  const wheelHint = h(
+    'div',
+    { class: 'wheel-hint', 'aria-hidden': 'true' },
+    h('span', {}, `Чтобы приблизить, крутите колесо с зажатым ${MODIFIER_LABEL} или кликните по карте`),
+  );
   const mapButton = (label: string, title: string, onclick: () => void): HTMLButtonElement =>
     h('button', { class: 'map-button', type: 'button', title, 'aria-label': title, onclick }, label);
   const area = h(
@@ -94,6 +100,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     canvas,
     gridCanvas,
     limitChip,
+    wheelHint,
     h(
       'div',
       { class: 'map-buttons' },
@@ -197,7 +204,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       metric([h('span', { class: 'metric-name' }, 'Итерации'), precisionChip], iterValue),
     ),
     h('div', { class: 'plot' }, yAxis, area, h('div', { class: 'plot-corner' }), xAxis),
-    h('p', { class: 'hint' }, 'Тяните — сдвиг · колесо или щипок — масштаб · двойной клик — приблизить (Shift — отдалить)'),
+    h('p', { class: 'hint' }, `Тяните — сдвиг · ${MODIFIER_LABEL} + колесо или щипок — масштаб · двойной клик — приблизить (Shift — отдалить)`),
     controls,
     createLocationsTable(def, (loc) => applyLocation(loc)),
   );
@@ -419,8 +426,40 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   };
 
+  // Колесо без модификатора прокручивает страницу. Клик по карте «включает» её:
+  // пока курсор над ней, колесо зумит; увёл курсор — карта снова пропускает прокрутку.
+  let wheelArmed = false;
+  let hintTimer = 0;
+  let lastPageScroll = 0;
+
+  // Если страницу только что прокручивали, карта просто «проехала» под курсором —
+  // подсказку не показываем, чтобы она не мигала при обычной прокрутке.
+  const onPageScroll = (): void => {
+    lastPageScroll = performance.now();
+  };
+  window.addEventListener('scroll', onPageScroll, { passive: true });
+  disposers.push(() => window.removeEventListener('scroll', onPageScroll));
+
+  const showWheelHint = (): void => {
+    if (performance.now() - lastPageScroll < 350) return;
+    wheelHint.classList.add('is-visible');
+    window.clearTimeout(hintTimer);
+    hintTimer = window.setTimeout(() => wheelHint.classList.remove('is-visible'), 1400);
+  };
+
+  const hideWheelHint = (): void => {
+    window.clearTimeout(hintTimer);
+    wheelHint.classList.remove('is-visible');
+  };
+
+  area.addEventListener('pointerleave', (e) => {
+    if (e.pointerType === 'mouse') wheelArmed = false;
+  });
+
   area.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    wheelArmed = true;
+    hideWheelHint();
     stopFlight();
     area.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, local(e));
@@ -459,13 +498,19 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   area.addEventListener(
     'wheel',
     (e) => {
+      // Щипок на тачпаде браузер присылает как wheel с ctrlKey — он зумит всегда.
+      if (!wheelArmed && !e.ctrlKey && !e.metaKey) {
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) showWheelHint();
+        return;
+      }
       e.preventDefault();
+      hideWheelHint();
       stopFlight();
-      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? cssH : 1;
-      // ctrlKey приходит при щипке на тачпаде — там дельты мельче.
-      const speed = e.ctrlKey ? 0.01 : 0.0015;
+      const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? cssH : 1);
+      // Мелкие дельты — тачпад (щипок, прокрутка двумя пальцами), крупные — щелчки колеса мыши.
+      const speed = Math.abs(delta) < 40 ? 0.01 : 0.002;
       const { x, y } = local(e);
-      state.view = zoomedView(x, y, Math.exp(e.deltaY * unit * speed));
+      state.view = zoomedView(x, y, Math.exp(clamp(delta * speed, -0.7, 0.7)));
       requestFrame(true);
     },
     { passive: false },
@@ -541,6 +586,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   return () => {
     stopFlight();
     cancelAnimationFrame(raf);
+    window.clearTimeout(hintTimer);
     window.clearTimeout(settleTimer);
     window.clearTimeout(urlTimer);
     disposers.forEach((dispose) => dispose());

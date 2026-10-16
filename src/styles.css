@@ -520,6 +520,33 @@ select {
   display: none;
 }
 
+/* Подсказка про зум: всплывает, когда колесо крутят над картой без модификатора. */
+.wheel-hint {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(18 18 16 / 0.35);
+  color: #fbfaf5;
+  font: 500 15px/1.4 var(--font-body);
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.wheel-hint.is-visible {
+  opacity: 1;
+}
+
+.wheel-hint span {
+  max-width: 36ch;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgb(18 18 16 / 0.72);
+}
+
 .hint {
   margin: 4px 0 0 76px;
   font: 400 12px/1.4 var(--font-mono);
