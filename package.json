@@ -1,0 +1,26 @@
+{
+  "name": "fractals-visuals",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Интерактивные карты самых известных фракталов на WebGL2",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dimagum/fractals-visuals.git"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/sofia-sans-extra-condensed": "^5.3.0"
+  }
+}
