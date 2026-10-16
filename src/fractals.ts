@@ -92,6 +92,11 @@ export const FRACTALS: FractalDef[] = [
       { name: 'Миниброт на дне спирали', view: { cx: -0.7746806106269039, cy: -0.1374168856037867, span: 1.2e-11 } },
       { name: 'Спиральная гряда', view: { cx: -0.0886, cy: 0.6546, span: 0.006 } },
       { name: 'Точка Мисюревича', view: { cx: -0.10109636384562, cy: 0.95628651080914, span: 3e-9 } },
+      { name: 'Остров Жюлиа на антенне', view: { cx: -1.768778833, cy: -0.001738996, span: 2.5e-7 } },
+      { name: 'Миниброт в долине коньков', view: { cx: -0.743643887037158, cy: 0.131825904205312, span: 4e-10 } },
+      { name: 'Мультиброт', power: 3, view: { cx: 0, cy: 0, span: 2.6 } },
+      { name: 'Дендриты Мультиброта', power: 3, view: { cx: 0.3605109486626, cy: 0.7083173679287, span: 3e-8 } },
+      { name: 'Мультиброт-пятилистник', power: 6, view: { cx: 0, cy: 0, span: 2.6 } },
     ],
   },
   {
@@ -121,6 +126,7 @@ export const FRACTALS: FractalDef[] = [
       { name: 'Галактики', param: [-0.7269, 0.1889], view: { cx: 0, cy: 0, span: 2.4 } },
       { name: 'Молнии', param: [-0.4, 0.6], view: { cx: 0, cy: 0, span: 2.4 } },
       { name: 'Кружево', param: [0.285, 0.01], view: { cx: 0, cy: 0, span: 2.4 } },
+      { name: 'Галактики крупным планом', param: [-0.7269, 0.1889], view: { cx: 0.0777226063, cy: 0.0979433, span: 2e-6 } },
     ],
   },
   {
@@ -146,6 +152,9 @@ export const FRACTALS: FractalDef[] = [
       { name: 'Такелаж', view: { cx: -1.7625, cy: -0.0281, span: 0.008 } },
       { name: 'Флотилия на горизонте', view: { cx: -1.5745, cy: -0.008, span: 0.04 } },
       { name: 'Языки пламени', view: { cx: -0.4, cy: -0.6, span: 0.7 } },
+      { name: 'Корабль на −1.86', view: { cx: -1.8611, cy: -0.0014, span: 0.0035 } },
+      { name: 'Корабль на −1.94', view: { cx: -1.9411, cy: -0.0024, span: 0.0055 } },
+      { name: 'Шлюпка у горизонта', view: { cx: -1.9537112, cy: -0.000032, span: 7e-5 } },
     ],
   },
   {
@@ -165,7 +174,13 @@ export const FRACTALS: FractalDef[] = [
     maxSpan: 8,
     deep: true,
     controls: ['power'],
-    locations: [],
+    locations: [
+      { name: 'Три рога', view: { cx: -0.35, cy: 0, span: 3.2 } },
+      { name: 'Левый рог', view: { cx: -1.25, cy: 0, span: 0.5 } },
+      { name: 'Мини-трикорн на антенне', view: { cx: -1.764, cy: 0, span: 0.04 } },
+      { name: 'Мультикорн, четыре рога', power: 3, view: { cx: 0, cy: 0, span: 3.2 } },
+      { name: 'Мультикорн, шесть рогов', power: 5, view: { cx: 0, cy: 0, span: 3 } },
+    ],
   },
   {
     id: 'newton',
@@ -188,6 +203,11 @@ export const FRACTALS: FractalDef[] = [
       { name: 'Три бассейна', view: { cx: 0, cy: 0, span: 3 } },
       { name: 'Бусины на отрицательной оси', view: { cx: -0.6, cy: 0, span: 0.8 } },
       { name: 'Окрестность полюса', view: { cx: 0, cy: 0, span: 0.25 } },
+      { name: 'Четыре бассейна', poly: 'z4-1', view: { cx: 0, cy: 0, span: 3 } },
+      { name: 'Пять лепестков', poly: 'z5-1', view: { cx: 0, cy: 0, span: 3 } },
+      { name: 'Шесть бассейнов', poly: 'z6+z3-1', view: { cx: 0, cy: 0, span: 3 } },
+      { name: 'Восемь корней', poly: 'z8+15z4-16', view: { cx: 0, cy: 0, span: 5 } },
+      { name: 'Ловушка цикла 0 ↔ 1', poly: 'z3-2z+2', view: { cx: 0, cy: 0, span: 1.2 } },
     ],
   },
   {
@@ -209,7 +229,12 @@ export const FRACTALS: FractalDef[] = [
     deep: false,
     controls: ['phoenix'],
     defaultParam: [0.56667, -0.5],
-    locations: [],
+    locations: [
+      { name: 'Птица', param: [0.56667, -0.5], view: { cx: 0, cy: 0, span: 2.2 } },
+      { name: 'Перья крыла', param: [0.56667, -0.5], view: { cx: 0.5, cy: 0.05, span: 0.6 } },
+      { name: 'Летучая мышь', param: [0.6, -0.7], view: { cx: 0, cy: 0, span: 2.2 } },
+      { name: 'Крест', param: [-0.5, 0.75], view: { cx: 0, cy: 0, span: 3 } },
+    ],
   },
   {
     id: 'lyapunov',
