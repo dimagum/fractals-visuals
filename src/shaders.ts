@@ -28,9 +28,13 @@ uniform int u_maxIter;
 uniform float u_density;    // плотность окраски
 uniform sampler2D u_palette;
 uniform vec3 u_inside;
-uniform vec2 u_param;       // c для множества Жюлиа
+uniform vec2 u_param;       // c для Жюлиа или (p, q) для Феникса
+uniform int u_power;        // степень d в zᵈ + c
 uniform int u_seq[16];      // последовательность Ляпунова: 0 = A, 1 = B
 uniform int u_seqLen;
+uniform float u_coeffs[9];  // многочлен Ньютона: a₀ … a₈
+uniform int u_degree;
+uniform vec2 u_roots[8];    // его корни, найденные на CPU
 uniform int u_zero;         // всегда 0 — барьер для оптимизатора в df64
 
 out vec4 outColor;
@@ -47,9 +51,20 @@ vec3 paletteAt(float t) {
   return texture(u_palette, vec2(t, 0.5)).rgb;
 }
 
-// Нормализованное число итераций: ν = n + 1 − log₂(ln|z|).
+vec2 cmul(vec2 a, vec2 b) { return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+vec2 cdiv(vec2 a, vec2 b) { return vec2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y) / dot(b, b); }
+
+// zᵈ повторным умножением: для целых d это точнее и дешевле, чем через exp/log.
+vec2 cpow(vec2 z, int d) {
+  vec2 r = z;
+  for (int k = 1; k < d; k++) r = cmul(r, z);
+  return r;
+}
+
+// Нормализованное число итераций: ν = n + 1 − log_d(ln|z|). При zᵈ модуль
+// за шаг возводится в степень d, поэтому логарифм берётся по основанию d.
 float smoothIter(float n, float r2) {
-  return n + 1.0 - log2(0.5 * log(r2));
+  return n + 1.0 - log2(0.5 * log(r2)) / log2(float(u_power));
 }
 
 vec3 escapeColor(float nu) {
@@ -114,25 +129,29 @@ vec2 dfMul(vec2 a, vec2 b) {
 vec2 dfAbs(vec2 a) { return a.x < 0.0 ? -a : a; }
 `;
 
-type EscapeVariant = 'mandelbrot' | 'julia' | 'burning-ship';
+type EscapeVariant = 'mandelbrot' | 'julia' | 'burning-ship' | 'tricorn';
 
-/** Мандельброт, Жюлиа и Burning Ship в обычной точности float32. */
+/** Мандельброт, Жюлиа, Burning Ship и Трикорн в обычной точности float32. */
 function escapeFp32(variant: EscapeVariant): string {
   const init =
     variant === 'julia'
       ? 'vec2 z = p; vec2 c = u_param;'
       : 'vec2 z = vec2(0.0); vec2 c = p;';
-  const step =
-    variant === 'burning-ship'
-      ? 'z = vec2(z.x * z.x - z.y * z.y, 2.0 * abs(z.x * z.y)) + c;'
-      : 'z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;';
+  // При d = 2 квадрат раскрыт вручную — это самый частый и самый горячий случай.
+  const step = {
+    mandelbrot: 'z = (u_power == 2 ? vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) : cpow(z, u_power)) + c;',
+    julia: 'z = (u_power == 2 ? vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) : cpow(z, u_power)) + c;',
+    'burning-ship': 'z = vec2(z.x * z.x - z.y * z.y, 2.0 * abs(z.x * z.y)) + c;',
+    // Сопряжение перед возведением в степень: z̄ᵈ.
+    tricorn: 'z = (u_power == 2 ? vec2(z.x * z.x - z.y * z.y, -2.0 * z.x * z.y) : cpow(vec2(z.x, -z.y), u_power)) + c;',
+  }[variant];
   // Главная кардиоида и круг периода 2 целиком внутри множества — их можно не итерировать.
   const precheck =
     variant === 'mandelbrot'
       ? `
   float qx = c.x - 0.25;
   float q = qx * qx + c.y * c.y;
-  if (q * (q + qx) <= 0.25 * c.y * c.y || (c.x + 1.0) * (c.x + 1.0) + c.y * c.y <= 0.0625) {
+  if (u_power == 2 && (q * (q + qx) <= 0.25 * c.y * c.y || (c.x + 1.0) * (c.x + 1.0) + c.y * c.y <= 0.0625)) {
     outColor = vec4(u_inside, 1.0);
     return;
   }`
@@ -155,25 +174,45 @@ void main() {
 `;
 }
 
-/** Те же три фрактала с координатами в double-float — для глубокого зума. */
+/** Те же фракталы с координатами в double-float — для глубокого зума. */
 function escapeDf64(variant: EscapeVariant): string {
   const init =
     variant === 'julia'
       ? 'vec2 zx = px; vec2 zy = py; vec2 cx = vec2(u_param.x, 0.0); vec2 cy = vec2(u_param.y, 0.0);'
       : 'vec2 zx = vec2(0.0); vec2 zy = vec2(0.0); vec2 cx = px; vec2 cy = py;';
   const cross = variant === 'burning-ship' ? 'dfAbs(dfMul(zx, zy))' : 'dfMul(zx, zy)';
+  const crossSign = variant === 'tricorn' ? '-2.0' : '2.0';
+  // Степень d > 2 — повторное комплексное умножение в double-float.
+  const general =
+    variant === 'burning-ship'
+      ? ''
+      : `
+    if (u_power != 2) {
+      vec2 bx = zx;
+      vec2 by = ${variant === 'tricorn' ? '-zy' : 'zy'};
+      vec2 rx = bx;
+      vec2 ry = by;
+      for (int k = 1; k < u_power; k++) {
+        vec2 nx = dfSub(dfMul(rx, bx), dfMul(ry, by));
+        ry = dfAdd(dfMul(rx, by), dfMul(ry, bx));
+        rx = nx;
+      }
+      zx = dfAdd(rx, cx);
+      zy = dfAdd(ry, cy);
+    } else`;
   return `${PRELUDE}${DF64}
 void main() {
   vec2 o = pixelOffset();
   vec2 px = dfAdd(vec2(u_centerHi.x, u_centerLo.x), vec2(o.x, 0.0));
   vec2 py = dfAdd(vec2(u_centerHi.y, u_centerLo.y), vec2(o.y, 0.0));
   ${init}
-  for (int i = 0; i < u_maxIter; i++) {
-    vec2 x2 = dfMul(zx, zx);
-    vec2 y2 = dfMul(zy, zy);
-    vec2 xy = ${cross};
-    zx = dfAdd(dfSub(x2, y2), cx);
-    zy = dfAdd(2.0 * xy, cy);
+  for (int i = 0; i < u_maxIter; i++) {${general} {
+      vec2 x2 = dfMul(zx, zx);
+      vec2 y2 = dfMul(zy, zy);
+      vec2 xy = ${cross};
+      zx = dfAdd(dfSub(x2, y2), cx);
+      zy = dfAdd(${crossSign} * xy, cy);
+    }
     float r2 = zx.x * zx.x + zy.x * zy.x;
     if (r2 > BAILOUT2) {
       outColor = vec4(escapeColor(smoothIter(float(i), r2)), 1.0);
@@ -185,31 +224,57 @@ void main() {
 `;
 }
 
-const NEWTON = /* glsl */ `${PRELUDE}
-vec2 cmul(vec2 a, vec2 b) { return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
-vec2 cdiv(vec2 a, vec2 b) { return vec2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y) / dot(b, b); }
+/**
+ * Феникс (Усики, 1988): z_{n+1} = z_n² + p + q·z_{n−1} с вещественными p и q.
+ * Его традиционно рисуют повёрнутым — «крыльями» в стороны, поэтому экранная
+ * ось x здесь соответствует Im z₀, а ось y — Re z₀.
+ */
+const PHOENIX = /* glsl */ `${PRELUDE}
+void main() {
+  vec2 z = (u_centerHi + (u_centerLo + pixelOffset())).yx;
+  vec2 prev = vec2(0.0);
+  for (int i = 0; i < u_maxIter; i++) {
+    vec2 next = vec2(z.x * z.x - z.y * z.y + u_param.x, 2.0 * z.x * z.y) + u_param.y * prev;
+    prev = z;
+    z = next;
+    float r2 = dot(z, z);
+    if (r2 > BAILOUT2) {
+      outColor = vec4(escapeColor(smoothIter(float(i), r2)), 1.0);
+      return;
+    }
+  }
+  outColor = vec4(u_inside, 1.0);
+}
+`;
 
+/** Метод Ньютона для многочлена до 8-й степени; p и p′ считаются схемой Горнера. */
+const NEWTON = /* glsl */ `${PRELUDE}
 const float TOL = 1e-5;
 
 void main() {
   vec2 z = u_centerHi + (u_centerLo + pixelOffset());
-  vec2 roots[3] = vec2[3](vec2(1.0, 0.0), vec2(-0.5, 0.8660254), vec2(-0.5, -0.8660254));
   for (int i = 0; i < u_maxIter; i++) {
-    vec2 z2 = cmul(z, z);
-    if (dot(z2, z2) < 1e-30) break; // производная обнулилась — шаг не определён
-    z -= cdiv(cmul(z2, z) - vec2(1.0, 0.0), 3.0 * z2);
-    for (int k = 0; k < 3; k++) {
-      float d = distance(z, roots[k]);
+    vec2 p = vec2(u_coeffs[u_degree], 0.0);
+    vec2 dp = vec2(0.0);
+    for (int k = u_degree - 1; k >= 0; k--) {
+      dp = cmul(dp, z) + p;
+      p = cmul(p, z) + vec2(u_coeffs[k], 0.0);
+    }
+    if (dot(dp, dp) < 1e-30) break; // производная обнулилась — шаг не определён
+    z -= cdiv(p, dp);
+    for (int k = 0; k < u_degree; k++) {
+      float d = distance(z, u_roots[k]);
       if (d < TOL) {
         // Сходимость квадратичная: ln d удваивается за шаг, отсюда дробная часть.
         float nu = float(i) + 1.0 - log2(log(max(d, 1e-30)) / log(TOL));
         float speed = exp(-nu * 0.09 * u_density);
-        float t = (float(k) + 0.1 + 0.8 * (1.0 - speed)) / 3.0;
+        float t = (float(k) + 0.1 + 0.8 * (1.0 - speed)) / float(u_degree);
         outColor = vec4(paletteAt(t), 1.0);
         return;
       }
     }
   }
+  // Не сошлось: притягивающий цикл (как у z³ − 2z + 2) или не хватило итераций.
   outColor = vec4(u_inside, 1.0);
 }
 `;
@@ -256,7 +321,10 @@ export function fragmentSource(id: FractalId, deep: boolean): string {
     case 'mandelbrot':
     case 'julia':
     case 'burning-ship':
+    case 'tricorn':
       return deep ? escapeDf64(id) : escapeFp32(id);
+    case 'phoenix':
+      return PHOENIX;
     case 'newton':
       return NEWTON;
     case 'lyapunov':

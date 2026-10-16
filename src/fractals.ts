@@ -1,10 +1,30 @@
+import { superscript } from './dom';
+import { NEWTON_POLYNOMIALS, findPolynomial } from './polynomial';
+
 /**
  * Описания фракталов: всё, что нужно интерфейсу и рендереру, кроме самих
  * шейдеров (они в shaders.ts). Координаты вида — в «родных» координатах
- * фрактала: комплексная плоскость для первых четырёх, плоскость параметров
- * (a, b) логистического отображения для фрактала Ляпунова.
+ * фрактала: комплексная плоскость для всех, кроме фрактала Ляпунова, у
+ * которого это плоскость параметров (a, b) логистического отображения.
  */
-export type FractalId = 'mandelbrot' | 'julia' | 'burning-ship' | 'newton' | 'lyapunov';
+export type FractalId = 'mandelbrot' | 'julia' | 'burning-ship' | 'tricorn' | 'newton' | 'phoenix' | 'lyapunov';
+
+/**
+ * Какие ручки есть у фрактала: степень d, параметр c Жюлиа (мини-карта),
+ * параметры p и q Феникса, многочлен Ньютона, последовательность Ляпунова.
+ */
+export type Control = 'power' | 'julia' | 'phoenix' | 'poly' | 'sequence';
+
+/** Значения всех ручек; фракталу нужны только свои. */
+export interface FractalParams {
+  power: number;
+  /** c для Жюлиа или (p, q) для Феникса. */
+  param: [number, number];
+  sequence: string;
+  poly: string;
+}
+
+export const POWER_RANGE: [number, number] = [2, 8];
 
 export interface View {
   cx: number;
@@ -13,13 +33,9 @@ export interface View {
   span: number;
 }
 
-export interface Location {
+export interface Location extends Partial<FractalParams> {
   name: string;
   view: View;
-  /** Параметр c для множества Жюлиа. */
-  julia?: [number, number];
-  /** Последовательность A/B для фрактала Ляпунова. */
-  sequence?: string;
 }
 
 export interface FractalDef {
@@ -43,7 +59,8 @@ export interface FractalDef {
   maxSpan: number;
   /** Есть вариант шейдера с эмуляцией double (double-float) для глубокого зума. */
   deep: boolean;
-  defaultJulia?: [number, number];
+  controls: Control[];
+  defaultParam?: [number, number];
   defaultSequence?: string;
   locations: Location[];
 }
@@ -65,6 +82,7 @@ export const FRACTALS: FractalDef[] = [
     minSpan: 1e-11,
     maxSpan: 8,
     deep: true,
+    controls: ['power'],
     locations: [
       { name: 'Долина морских коньков', view: { cx: -0.7453, cy: 0.1127, span: 0.0065 } },
       { name: 'Спираль морского конька', view: { cx: -0.743643887037151, cy: 0.13182590420533, span: 0.00012 } },
@@ -92,16 +110,17 @@ export const FRACTALS: FractalDef[] = [
     minSpan: 1e-11,
     maxSpan: 8,
     deep: true,
-    defaultJulia: [-0.8, 0.156],
+    controls: ['julia', 'power'],
+    defaultParam: [-0.8, 0.156],
     locations: [
-      { name: 'Спирали', julia: [-0.8, 0.156], view: { cx: 0, cy: 0, span: 2.4 } },
-      { name: 'Кролик Дуади', julia: [-0.123, 0.745], view: { cx: 0, cy: 0, span: 2.4 } },
-      { name: 'Дендрит', julia: [0, 1], view: { cx: 0, cy: 0, span: 2.4 } },
-      { name: 'Сан-Марко', julia: [-0.75, 0], view: { cx: 0, cy: 0, span: 2.4 } },
-      { name: 'Диск Зигеля', julia: [-0.390541, -0.586788], view: { cx: 0, cy: 0, span: 2.4 } },
-      { name: 'Галактики', julia: [-0.7269, 0.1889], view: { cx: 0, cy: 0, span: 2.4 } },
-      { name: 'Молнии', julia: [-0.4, 0.6], view: { cx: 0, cy: 0, span: 2.4 } },
-      { name: 'Кружево', julia: [0.285, 0.01], view: { cx: 0, cy: 0, span: 2.4 } },
+      { name: 'Спирали', param: [-0.8, 0.156], view: { cx: 0, cy: 0, span: 2.4 } },
+      { name: 'Кролик Дуади', param: [-0.123, 0.745], view: { cx: 0, cy: 0, span: 2.4 } },
+      { name: 'Дендрит', param: [0, 1], view: { cx: 0, cy: 0, span: 2.4 } },
+      { name: 'Сан-Марко', param: [-0.75, 0], view: { cx: 0, cy: 0, span: 2.4 } },
+      { name: 'Диск Зигеля', param: [-0.390541, -0.586788], view: { cx: 0, cy: 0, span: 2.4 } },
+      { name: 'Галактики', param: [-0.7269, 0.1889], view: { cx: 0, cy: 0, span: 2.4 } },
+      { name: 'Молнии', param: [-0.4, 0.6], view: { cx: 0, cy: 0, span: 2.4 } },
+      { name: 'Кружево', param: [0.285, 0.01], view: { cx: 0, cy: 0, span: 2.4 } },
     ],
   },
   {
@@ -121,6 +140,7 @@ export const FRACTALS: FractalDef[] = [
     minSpan: 1e-11,
     maxSpan: 8,
     deep: true,
+    controls: [],
     locations: [
       { name: 'Корабль', view: { cx: -1.756, cy: -0.026, span: 0.09 } },
       { name: 'Такелаж', view: { cx: -1.7625, cy: -0.0281, span: 0.008 } },
@@ -129,13 +149,32 @@ export const FRACTALS: FractalDef[] = [
     ],
   },
   {
+    id: 'tricorn',
+    name: 'Трикорн',
+    short: 'Трикорн',
+    tag: 'z̄² + c',
+    formula: 'zₙ₊₁ = z̄ₙ² + c,  z₀ = 0',
+    overline: 'Комплексная плоскость · время убегания',
+    blurb: 'Мандельброт с комплексным сопряжением: вместо кардиоиды — три рога.',
+    axes: ['Re', 'Im'],
+    home: { cx: -0.35, cy: 0, span: 3.2 },
+    preview: { cx: -0.35, cy: 0, span: 3.3 },
+    iterations: { base: 200, min: 50, max: 5000, perOctave: 40 },
+    colorScale: 1,
+    minSpan: 1e-11,
+    maxSpan: 8,
+    deep: true,
+    controls: ['power'],
+    locations: [],
+  },
+  {
     id: 'newton',
     name: 'Фрактал Ньютона',
     short: 'Ньютон',
-    tag: 'z³ − 1 = 0',
-    formula: 'zₙ₊₁ = zₙ − (zₙ³ − 1) / 3zₙ²',
+    tag: 'p(z) = 0',
+    formula: 'zₙ₊₁ = zₙ − p(zₙ) / p′(zₙ)',
     overline: 'Комплексная плоскость · бассейны корней',
-    blurb: 'К какому из трёх корней z³ = 1 приведёт метод Ньютона из точки z₀.',
+    blurb: 'К какому корню многочлена приведёт метод Ньютона из точки z₀.',
     axes: ['Re', 'Im'],
     home: { cx: 0, cy: 0, span: 3 },
     preview: { cx: -0.35, cy: 0, span: 2.2 },
@@ -144,11 +183,33 @@ export const FRACTALS: FractalDef[] = [
     minSpan: 2e-4,
     maxSpan: 12,
     deep: false,
+    controls: ['poly'],
     locations: [
       { name: 'Три бассейна', view: { cx: 0, cy: 0, span: 3 } },
       { name: 'Бусины на отрицательной оси', view: { cx: -0.6, cy: 0, span: 0.8 } },
       { name: 'Окрестность полюса', view: { cx: 0, cy: 0, span: 0.25 } },
     ],
+  },
+  {
+    id: 'phoenix',
+    name: 'Фрактал Феникс',
+    short: 'Феникс',
+    tag: 'z² + p + q·zₙ₋₁',
+    formula: 'zₙ₊₁ = zₙ² + p + q·zₙ₋₁,  z₋₁ = 0',
+    overline: 'Комплексная плоскость · память о прошлом шаге',
+    blurb: 'Каждый шаг помнит предыдущую точку орбиты — получается птица-феникс.',
+    // Рисуется повёрнутым: по горизонтали Im z₀, по вертикали Re z₀.
+    axes: ['Im', 'Re'],
+    home: { cx: 0, cy: 0, span: 2.2 },
+    preview: { cx: 0, cy: 0, span: 2.6 },
+    iterations: { base: 200, min: 50, max: 3000, perOctave: 30 },
+    colorScale: 1,
+    minSpan: 2e-4,
+    maxSpan: 8,
+    deep: false,
+    controls: ['phoenix'],
+    defaultParam: [0.56667, -0.5],
+    locations: [],
   },
   {
     id: 'lyapunov',
@@ -166,6 +227,7 @@ export const FRACTALS: FractalDef[] = [
     minSpan: 1e-3,
     maxSpan: 6,
     deep: false,
+    controls: ['sequence'],
     defaultSequence: 'AABAB',
     locations: [
       { name: 'Классика AB', sequence: 'AB', view: { cx: 3, cy: 3, span: 2.05 } },
@@ -178,6 +240,22 @@ export const FRACTALS: FractalDef[] = [
 
 export function findFractal(id: string | null | undefined): FractalDef | undefined {
   return FRACTALS.find((f) => f.id === id);
+}
+
+/** Формула в шапке карты с учётом текущей степени или многочлена. */
+export function formulaText(def: FractalDef, params: FractalParams): string {
+  if (def.controls.includes('poly')) return `${def.formula},  p(z) = ${findPolynomial(params.poly).label}`;
+  if (def.controls.includes('power') && params.power !== 2) return def.formula.replace('²', superscript(params.power));
+  return def.formula;
+}
+
+export function defaultParams(def: FractalDef): FractalParams {
+  return {
+    power: 2,
+    param: def.defaultParam ?? [0, 0],
+    sequence: def.defaultSequence ?? 'AB',
+    poly: NEWTON_POLYNOMIALS[0]!.id,
+  };
 }
 
 /** Сколько итераций реально считать на данном масштабе. */

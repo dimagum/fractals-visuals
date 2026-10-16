@@ -257,7 +257,7 @@ select {
 
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 22px;
 }
 
@@ -693,6 +693,47 @@ select {
 
 .field-export {
   min-width: 0;
+}
+
+.field-seg,
+.field-poly {
+  min-width: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  width: max-content;
+  border: 1.5px solid var(--pill-border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.seg {
+  min-width: 36px;
+  height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-left: 1px solid var(--pill-border);
+  background: transparent;
+  font: 500 14px/1 var(--font-mono);
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.seg:first-child {
+  border-left: 0;
+}
+
+.seg:hover {
+  background: var(--pill);
+}
+
+.seg[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--bg);
 }
 
 .field-row {

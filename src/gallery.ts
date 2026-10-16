@@ -1,6 +1,6 @@
 import { h } from './dom';
-import { FRACTALS, effectiveIterations, parseSequence, type FractalDef } from './fractals';
-import type { Renderer } from './renderer';
+import { FRACTALS, defaultParams, type FractalDef } from './fractals';
+import { drawParamsFor, type Renderer } from './renderer';
 import { href } from './router';
 import { colors, subscribe } from './store';
 
@@ -38,7 +38,7 @@ export function mountGallery(root: HTMLElement, renderer: Renderer): () => void 
       h(
         'p',
         { class: 'lede' },
-        'Пять самых известных фракталов, построенных по формулам прямо на видеокарте. Выберите плитку — и приближайте, пока хватает точности.',
+        'Самые известные фракталы, построенные по формулам прямо на видеокарте. Выберите плитку — и приближайте, пока хватает точности.',
       ),
     ),
     h('div', { class: 'tile-grid' }, ...tiles.map((t) => t.el)),
@@ -92,14 +92,7 @@ function drawPreview(renderer: Renderer, def: FractalDef, target: HTMLCanvasElem
   const size = Math.max(64, Math.round(rect.width * dpr));
   renderer.canvas.width = size;
   renderer.canvas.height = size;
-  renderer.draw({
-    fractal: def,
-    view: def.preview,
-    iterations: effectiveIterations(def, def.iterations.base, def.preview.span),
-    density: 1,
-    julia: def.defaultJulia ?? [0, 0],
-    sequence: parseSequence(def.defaultSequence ?? 'AB') ?? [0, 1],
-  });
+  renderer.draw(drawParamsFor(def, def.preview, defaultParams(def), def.iterations.base, 1));
   target.width = size;
   target.height = size;
   target.getContext('2d')?.drawImage(renderer.canvas, 0, 0);
