@@ -11,7 +11,7 @@ import { findFractal } from './fractals';
 import { mountGallery } from './gallery';
 import { Renderer } from './renderer';
 import { navigate, parseRoute, replaceQuery } from './router';
-import { currentPalette, setPalette, subscribe } from './store';
+import { readPaletteQuery, subscribe, writePaletteQuery } from './store';
 import { createToolbar } from './toolbar';
 import { mountViewer } from './viewer';
 
@@ -36,13 +36,12 @@ function render(): void {
   app.replaceChildren();
 
   const route = parseRoute();
-  const palette = route.query.get('p');
-  if (palette) setPalette(palette);
+  readPaletteQuery(route.query);
   const def = findFractal(route.fractal);
 
   const toolbar = createToolbar({
     fractalId: def?.id ?? null,
-    onFractal: (id) => navigate(id, new URLSearchParams({ p: currentPalette().id })),
+    onFractal: (id) => navigate(id, writePaletteQuery(new URLSearchParams())),
   });
   const main = h('main', { class: 'page' });
   app.append(
@@ -87,7 +86,7 @@ function render(): void {
 // В галерее гамма — единственное состояние, которое стоит хранить в адресе.
 subscribe(() => {
   const route = parseRoute();
-  if (!findFractal(route.fractal)) replaceQuery(null, new URLSearchParams({ p: currentPalette().id }));
+  if (!findFractal(route.fractal)) replaceQuery(null, writePaletteQuery(new URLSearchParams()));
 });
 
 window.addEventListener('hashchange', render);

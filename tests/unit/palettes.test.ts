@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { PALETTES, bakeGradient, findPalette, hexToRgb, resolveColors } from '../../src/palettes';
+import {
+  DEFAULT_CUSTOM,
+  MAX_STOPS,
+  PALETTES,
+  bakeGradient,
+  decodeCustom,
+  encodeCustom,
+  findPalette,
+  hexToRgb,
+  resolveColors,
+} from '../../src/palettes';
 
 const pixel = (data: Uint8Array, i: number): [number, number, number] => [data[i * 4]!, data[i * 4 + 1]!, data[i * 4 + 2]!];
 
@@ -42,5 +52,29 @@ describe('палитры', () => {
     expect(resolveColors(ink, true)).toBe(ink.dark);
     expect(resolveColors(magma, true)).toBe(magma);
     expect(findPalette('nope')).toBe(PALETTES[0]);
+  });
+});
+
+describe('своя гамма в адресе', () => {
+  it('кодируется и раскодируется без потерь', () => {
+    const encoded = encodeCustom(DEFAULT_CUSTOM);
+    expect(encoded).toBe('0b1d2a-1f6f8b-99d5c9-f6f1d1-e86a33_0b1d2a_1f6f8b');
+    expect(decodeCustom(encoded)).toEqual(DEFAULT_CUSTOM);
+  });
+
+  it('приводит hex к нижнему регистру', () => {
+    expect(decodeCustom('FFFFFF-000000_ABCDEF_123456')).toEqual({
+      stops: ['#ffffff', '#000000'],
+      inside: '#abcdef',
+      accent: '#123456',
+    });
+  });
+
+  it('отвергает испорченные строки', () => {
+    expect(decodeCustom('')).toBeNull();
+    expect(decodeCustom('ffffff_000000_111111')).toBeNull(); // один опорный цвет
+    expect(decodeCustom('ffffff-zzzzzz_000000_111111')).toBeNull();
+    expect(decodeCustom(`${Array(MAX_STOPS + 1).fill('ffffff').join('-')}_000000_111111`)).toBeNull();
+    expect(decodeCustom('ffffff-000000_000000')).toBeNull();
   });
 });

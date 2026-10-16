@@ -18,7 +18,7 @@ import { createLocationsTable, formatComplex } from './locations';
 import { NEWTON_POLYNOMIALS, findPolynomial } from './polynomial';
 import { Renderer, drawParamsFor, needsDeep, type DrawParams } from './renderer';
 import { replaceQuery } from './router';
-import { colors, currentPalette, subscribe } from './store';
+import { colors, subscribe, writePaletteQuery } from './store';
 
 interface ViewerState {
   view: View;
@@ -691,8 +691,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     if (has('poly')) q.set('poly', state.params.poly);
     if (has('sequence')) q.set('seq', state.params.sequence);
     if (!state.grid) q.set('grid', '0');
-    q.set('p', currentPalette().id);
-    replaceQuery(def.id, q);
+    replaceQuery(def.id, writePaletteQuery(q));
   }
 
   // ---------- Подписки ----------

@@ -83,3 +83,33 @@ test('экспорт PNG отдаёт файл нужного размера', a
   expect(png.readUInt32BE(16)).toBe(1920);
   expect(png.readUInt32BE(20)).toBeGreaterThan(500);
 });
+
+test('своя гамма из ссылки применяется и редактируется', async ({ page }) => {
+  await page.goto('./#/?p=custom&cp=ff0000-0000ff_000000_00ff00');
+  await expect(page.locator('.pill-custom')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'))).toBe('#00ff00');
+
+  await page.locator('.pill-custom').click();
+  const editor = page.getByRole('region', { name: 'Своя гамма' });
+  await expect(editor).toBeVisible();
+  await editor.getByRole('button', { name: 'Добавить цвет' }).click();
+  await expect(editor.locator('.pe-stops input[type="color"]')).toHaveCount(3);
+  await expect(page).toHaveURL(/cp=ff0000-0000ff-0000ff_000000_00ff00/);
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeHidden();
+});
+
+test('степень d меняет формулу и попадает в адрес', async ({ page }) => {
+  await page.goto('./#/mandelbrot?p=ink');
+  await page.getByRole('group', { name: 'Степень d' }).getByRole('button', { name: '4' }).click();
+  await expect(page.locator('.formula')).toHaveText(/zₙ⁴ \+ c/);
+  await expect(page).toHaveURL(/pow=4/);
+  await expect.poll(() => distinctColors(page.locator('.plot-canvas')), { timeout: 20_000 }).toBeGreaterThan(8);
+});
+
+test('многочлен Ньютона выбирается из списка', async ({ page }) => {
+  await page.goto('./#/newton?p=viridis');
+  await page.getByLabel('Многочлен p(z)').selectOption('z8+15z4-16');
+  await expect(page.locator('.formula')).toContainText('z⁸ + 15z⁴ − 16');
+  await expect(page).toHaveURL(/poly=z8%2B15z4-16/);
+});
