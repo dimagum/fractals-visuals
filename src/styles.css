@@ -691,6 +691,52 @@ select {
   min-width: 170px;
 }
 
+.field-export {
+  min-width: 0;
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.mini-select {
+  height: 40px;
+  padding: 0 10px;
+  border: 1.5px solid var(--pill-border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mini-button {
+  height: 40px;
+  min-width: 148px;
+  padding: 0 16px;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-control);
+  background: var(--ink);
+  color: var(--bg);
+  font: 600 12.5px/1 var(--font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.mini-button:hover {
+  background: color-mix(in srgb, var(--ink) 85%, var(--bg));
+}
+
+.mini-button.is-busy {
+  background: transparent;
+  color: var(--ink);
+}
+
 .cpicker {
   position: relative;
   width: 170px;

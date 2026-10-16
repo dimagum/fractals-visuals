@@ -1,5 +1,6 @@
 import { computeTicks, drawGrid, maxCharsFor, renderAxisLabels, stepDecimals, type Frame } from './axes';
 import { formatFixed, formatInt, formatZoom, h } from './dom';
+import { EXPORT_SIZES, downloadBlob, exportDimensions, renderPng, type ExportJob, type ExportSize } from './export';
 import { easeInOutCubic, flightPath } from './flight';
 import {
   FRACTALS,
@@ -142,12 +143,27 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     requestFrame(false);
   });
 
+  const exportSelect = h(
+    'select',
+    { class: 'mini-select', 'aria-label': 'Размер PNG' },
+    ...EXPORT_SIZES.map((size) => h('option', { value: size.id }, size.label)),
+  );
+  const exportButton = h('button', { class: 'mini-button', type: 'button' }, 'Скачать PNG');
+  let exportJob: ExportJob | null = null;
+  exportButton.addEventListener('click', () => void runExport());
+
   const controls = h(
     'div',
     { class: 'controls' },
     iterField.el,
     densityField.el,
     h('label', { class: 'field field-switch' }, h('span', { class: 'field-label' }, 'Сетка'), gridToggle),
+    h(
+      'div',
+      { class: 'field field-export' },
+      h('span', { class: 'field-label' }, 'Экспорт'),
+      h('div', { class: 'field-row' }, exportSelect, exportButton),
+    ),
   );
 
   let juliaPicker: ReturnType<typeof createJuliaPicker> | null = null;
@@ -228,6 +244,44 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   let urlTimer = 0;
   // Стоимость пикселя уточняется после каждого кадра; стартовая оценка — с запасом.
   let msPerPixel = 4e-6;
+
+  /** Рендерит текущий вид в PNG; повторный клик во время рендера отменяет его. */
+  async function runExport(): Promise<void> {
+    if (exportJob) {
+      exportJob.cancelled = true;
+      return;
+    }
+    const job: ExportJob = { cancelled: false };
+    exportJob = job;
+    const [width, height] = exportDimensions(
+      exportSelect.value as ExportSize,
+      [canvas.width, canvas.height],
+      cssW / cssH,
+    );
+    const params = { ...drawParams(), view: { ...state.view } };
+    const setLabel = (fraction: number): void => {
+      exportButton.textContent = `Отмена · ${Math.round(fraction * 100)}%`;
+    };
+    setLabel(0);
+    exportButton.classList.add('is-busy');
+    try {
+      const blob = await renderPng(params, colors(), width, height, job, setLabel);
+      if (blob) downloadBlob(blob, exportFilename(params.view, width, height));
+    } catch (err) {
+      console.error(err);
+      window.alert('Не удалось сохранить картинку: видеокарта не справилась с таким размером.');
+    } finally {
+      exportJob = null;
+      exportButton.textContent = 'Скачать PNG';
+      exportButton.classList.remove('is-busy');
+    }
+  }
+
+  function exportFilename(view: View, width: number, height: number): string {
+    const zoom = def.home.span / view.span;
+    const zoomTag = zoom < 1e5 ? String(Math.round(zoom)) : zoom.toExponential(1).replace('+', '');
+    return `${def.id}-x${zoomTag}-${width}x${height}.png`;
+  }
 
   function iterRange(): [number, number] {
     return [def.iterations.min, def.iterations.max];
@@ -585,6 +639,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
 
   return () => {
     stopFlight();
+    if (exportJob) exportJob.cancelled = true;
     cancelAnimationFrame(raf);
     window.clearTimeout(hintTimer);
     window.clearTimeout(settleTimer);
