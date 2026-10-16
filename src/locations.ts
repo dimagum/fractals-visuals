@@ -1,10 +1,29 @@
 import { formatFixed, formatZoom, h } from './dom';
-import type { FractalDef, Location } from './fractals';
+import type { Control, FractalDef, Location } from './fractals';
+import { findPolynomial } from './polynomial';
 
 /** Подпись для параметра c множества Жюлиа: «−0.123 + 0.745i». */
 export function formatComplex([re, im]: [number, number], decimals = 3): string {
   const sign = im < 0 ? '−' : '+';
   return `${formatFixed(re, decimals)} ${sign} ${formatFixed(Math.abs(im), decimals)}i`;
+}
+
+/** Колонка параметра в таблице мест: у каждого фрактала своя или никакой. */
+function paramColumn(def: FractalDef): { header: string; cell: (loc: Location) => string } | null {
+  const has = (control: Control): boolean => def.controls.includes(control);
+  if (has('julia')) return { header: 'Параметр c', cell: (loc) => (loc.param ? formatComplex(loc.param) : '—') };
+  if (has('phoenix')) {
+    return {
+      header: 'p, q',
+      cell: (loc) => (loc.param ? `${formatFixed(loc.param[0], 3)}, ${formatFixed(loc.param[1], 3)}` : '—'),
+    };
+  }
+  if (has('sequence')) return { header: 'Последовательность', cell: (loc) => loc.sequence ?? '—' };
+  if (has('poly')) return { header: 'Многочлен', cell: (loc) => findPolynomial(loc.poly).label };
+  if (has('power') && def.locations.some((loc) => loc.power)) {
+    return { header: 'Степень', cell: (loc) => `d = ${loc.power ?? 2}` };
+  }
+  return null;
 }
 
 /**
@@ -13,7 +32,8 @@ export function formatComplex([re, im]: [number, number], decimals = 3): string 
  * Клик по строке отправляет камеру в это место.
  */
 export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) => void): HTMLElement {
-  const paramHeader = def.id === 'julia' ? 'Параметр c' : def.id === 'lyapunov' ? 'Последовательность' : null;
+  const paramCol = paramColumn(def);
+  const paramHeader = paramCol?.header ?? null;
   const zoomOf = (loc: Location): number => def.home.span / loc.view.span;
   const maxLogZoom = Math.max(1, ...def.locations.map((loc) => Math.log10(zoomOf(loc)) + 1));
   // У Жюлиа все места — разные c в одном кадре: колонки центра и увеличения там пусты.
@@ -36,7 +56,7 @@ export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) 
   const rowFor = (loc: Location): HTMLTableRowElement => {
     const decimals = Math.min(15, Math.max(2, Math.ceil(-Math.log10(loc.view.span)) + 2));
     const zoom = zoomOf(loc);
-    const param = loc.julia ? formatComplex(loc.julia) : (loc.sequence ?? null);
+    const param = paramCol?.cell(loc) ?? null;
     const row = h(
       'tr',
       { tabindex: '0', 'aria-label': `Перейти: ${loc.name}` },
@@ -78,7 +98,7 @@ export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) 
   const refresh = (): void => {
     const needle = filter.trim().toLowerCase();
     const visible = rows.filter(({ loc }) =>
-      `${loc.name} ${loc.sequence ?? ''}`.toLowerCase().includes(needle),
+      `${loc.name} ${paramCol?.cell(loc) ?? ''}`.toLowerCase().includes(needle),
     );
     if (order !== 'none') {
       const dir = order === 'desc' ? -1 : 1;

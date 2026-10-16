@@ -38,6 +38,11 @@ const SUPERSCRIPT: Record<string, string> = {
   '9': '⁹',
 };
 
+/** Целое число надстрочными цифрами: 12 → ¹². */
+export function superscript(n: number): string {
+  return [...String(n)].map((ch) => SUPERSCRIPT[ch] ?? ch).join('');
+}
+
 /** Типографский минус вместо дефиса. */
 export function minus(text: string): string {
   return text.replace(/-/g, '−');
@@ -56,8 +61,7 @@ export function formatZoom(zoom: number): string {
   }
   const exp = Math.floor(Math.log10(zoom));
   const mantissa = (zoom / 10 ** exp).toFixed(1);
-  const sup = [...String(exp)].map((ch) => SUPERSCRIPT[ch] ?? ch).join('');
-  return `×${mantissa}·10${sup}`;
+  return `×${mantissa}·10${superscript(exp)}`;
 }
 
 export function formatInt(value: number): string {

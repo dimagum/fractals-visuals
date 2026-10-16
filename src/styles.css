@@ -120,32 +120,208 @@ select {
 }
 
 /* ---------- Панель: таблетки гамм и выбор фрактала ---------- */
+.toolbar-wrap {
+  margin-bottom: 28px;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin-bottom: 28px;
+}
+
+.pill-edit {
+  margin-left: -2px;
+  font-size: 14px;
+  letter-spacing: 0;
+  opacity: 0.6;
+}
+
+/* ---------- Редактор своей гаммы ---------- */
+.palette-editor {
+  margin-top: 14px;
+  padding: 20px 22px 22px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.palette-editor[hidden] {
+  display: none;
+}
+
+.pe-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pe-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pe-actions .mini-button {
+  min-width: 0;
+}
+
+.pe-text-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 500 13px/1 var(--font-mono);
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.pe-text-button:hover {
+  color: var(--ink);
+}
+
+.pe-preview {
+  height: 14px;
+  margin: 16px 0 18px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+
+.pe-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px 36px;
+}
+
+.pe-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pe-singles {
+  flex-direction: row;
+  gap: 22px;
+}
+
+.pe-stops {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pe-stop {
+  position: relative;
+}
+
+.pe-swatch,
+.pe-single {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.pe-color {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1.5px solid var(--pill-border);
+  border-radius: 10px;
+  background: none;
+  cursor: pointer;
+}
+
+.pe-color::-webkit-color-swatch-wrapper {
+  padding: 3px;
+}
+
+.pe-color::-webkit-color-swatch {
+  border: 0;
+  border-radius: 7px;
+}
+
+.pe-color::-moz-color-swatch {
+  border: 0;
+  border-radius: 7px;
+}
+
+.pe-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  font: 500 13px/1 var(--font-body);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.pe-stop:hover .pe-remove,
+.pe-remove:focus-visible {
+  opacity: 1;
+}
+
+.pe-remove:disabled {
+  display: none;
+}
+
+.pe-add {
+  width: 44px;
+  height: 44px;
+  border: 1.5px dashed var(--pill-border);
+  border-radius: 10px;
+  background: none;
+  font: 400 22px/1 var(--font-body);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pe-add:hover {
+  border-color: var(--ink-2);
+  color: var(--ink);
+}
+
+.pe-add:disabled {
+  display: none;
+}
+
+@media (hover: none) {
+  .pe-remove {
+    opacity: 1;
+  }
 }
 
 .pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   height: 46px;
-  padding: 0 15px;
+  padding: 0 12px;
   border: 1.5px solid var(--pill-border);
   border-radius: var(--radius-control);
   background: var(--pill);
   color: var(--ink-2);
-  font: 600 13px/1 var(--font-body);
-  letter-spacing: 0.08em;
+  font: 600 12.5px/1 var(--font-body);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
   transition:
@@ -178,7 +354,7 @@ select {
 .picker {
   position: relative;
   flex: 0 1 300px;
-  min-width: 240px;
+  min-width: 220px;
   margin-left: auto;
 }
 
@@ -257,7 +433,7 @@ select {
 
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 22px;
 }
 
@@ -693,6 +869,47 @@ select {
 
 .field-export {
   min-width: 0;
+}
+
+.field-seg,
+.field-poly {
+  min-width: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  width: max-content;
+  border: 1.5px solid var(--pill-border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.seg {
+  min-width: 36px;
+  height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-left: 1px solid var(--pill-border);
+  background: transparent;
+  font: 500 14px/1 var(--font-mono);
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.seg:first-child {
+  border-left: 0;
+}
+
+.seg:hover {
+  background: var(--pill);
+}
+
+.seg[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--bg);
 }
 
 .field-row {

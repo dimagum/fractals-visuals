@@ -8,15 +8,20 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:gpu": "E2E_ANGLE=metal playwright test e2e/df64.spec.ts"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dimagum/fractals-visuals.git"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4"
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",

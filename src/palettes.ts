@@ -71,6 +71,35 @@ export const PALETTES: Palette[] = [
   },
 ];
 
+/** Своя гамма: цвета задаёт пользователь в редакторе. */
+export const CUSTOM_ID = 'custom';
+export const MAX_STOPS = 7;
+export const DEFAULT_CUSTOM: PaletteColors = {
+  stops: ['#0b1d2a', '#1f6f8b', '#99d5c9', '#f6f1d1', '#e86a33'],
+  inside: '#0b1d2a',
+  accent: '#1f6f8b',
+};
+
+/**
+ * Своя гамма в адресе: опорные цвета через дефис, затем «внутренность» и
+ * акцент через подчёркивание — «0b1d2a-1f6f8b-f6f1d1_0b1d2a_1f6f8b».
+ */
+export function encodeCustom(colors: PaletteColors): string {
+  const hex = (c: string): string => c.slice(1).toLowerCase();
+  return `${colors.stops.map(hex).join('-')}_${hex(colors.inside)}_${hex(colors.accent)}`;
+}
+
+export function decodeCustom(text: string): PaletteColors | null {
+  const parts = text.split('_');
+  if (parts.length !== 3) return null;
+  const valid = (h: string): boolean => /^[0-9a-f]{6}$/i.test(h);
+  const stops = parts[0]!.split('-');
+  if (stops.length < 2 || stops.length > MAX_STOPS || !stops.every(valid)) return null;
+  if (!valid(parts[1]!) || !valid(parts[2]!)) return null;
+  const hash = (h: string): string => `#${h.toLowerCase()}`;
+  return { stops: stops.map(hash), inside: hash(parts[1]!), accent: hash(parts[2]!) };
+}
+
 export function findPalette(id: string | null | undefined): Palette {
   return PALETTES.find((p) => p.id === id) ?? PALETTES[0]!;
 }

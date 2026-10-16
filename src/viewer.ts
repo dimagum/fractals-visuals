@@ -4,24 +4,27 @@ import { EXPORT_SIZES, downloadBlob, exportDimensions, renderPng, type ExportJob
 import { easeInOutCubic, flightPath } from './flight';
 import {
   FRACTALS,
+  POWER_RANGE,
+  defaultParams,
   effectiveIterations,
+  formulaText,
   parseSequence,
   type FractalDef,
+  type FractalParams,
   type Location,
   type View,
 } from './fractals';
 import { createLocationsTable, formatComplex } from './locations';
-import { Renderer, needsDeep, type DrawParams } from './renderer';
+import { NEWTON_POLYNOMIALS, findPolynomial } from './polynomial';
+import { Renderer, drawParamsFor, needsDeep, type DrawParams } from './renderer';
 import { replaceQuery } from './router';
-import { colors, currentPalette, subscribe } from './store';
+import { colors, subscribe, writePaletteQuery } from './store';
 
 interface ViewerState {
   view: View;
   iterBase: number;
   density: number;
-  julia: [number, number];
-  sequenceText: string;
-  sequence: number[];
+  params: FractalParams;
   grid: boolean;
 }
 
@@ -35,7 +38,10 @@ const SETTLE_MS = 160;
 const DENSITY_RANGE: [number, number] = [0.25, 4];
 const SLIDER_MAX = 1000;
 const MANDELBROT = FRACTALS[0]!;
-const PICKER_VIEW: View = { cx: -0.65, cy: 0, span: 2.8 };
+const PHOENIX_RANGE: [number, number] = [-1.2, 1.2];
+/** Мини-карта c: для d = 2 смещена влево к телу Мандельброта, для d > 2 множество симметрично. */
+const pickerView = (power: number): View =>
+  power === 2 ? { cx: -0.65, cy: 0, span: 2.8 } : { cx: 0, cy: 0, span: 2.8 };
 const MODIFIER_LABEL = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -50,8 +56,15 @@ function initialState(def: FractalDef, q: URLSearchParams): ViewerState {
     return Number.isFinite(v) ? v : null;
   };
   const span = num('s');
-  const c = (q.get('c') ?? '').split(',').map(Number);
-  const sequenceText = (q.get('seq') ?? def.defaultSequence ?? 'AB').toUpperCase();
+  const params = defaultParams(def);
+  const pair = (q.get(def.controls.includes('phoenix') ? 'pq' : 'c') ?? '').split(',').map(Number);
+  if (pair.length === 2 && pair.every(Number.isFinite)) params.param = [pair[0]!, pair[1]!];
+  const power = num('pow');
+  if (power !== null) params.power = clamp(Math.round(power), ...POWER_RANGE);
+  const sequence = q.get('seq')?.toUpperCase();
+  if (sequence && parseSequence(sequence)) params.sequence = sequence;
+  const poly = q.get('poly');
+  if (poly && NEWTON_POLYNOMIALS.some((p) => p.id === poly)) params.poly = poly;
   return {
     view: {
       cx: num('x') ?? def.home.cx,
@@ -60,12 +73,7 @@ function initialState(def: FractalDef, q: URLSearchParams): ViewerState {
     },
     iterBase: clamp(Math.round(num('it') ?? def.iterations.base), def.iterations.min, def.iterations.max),
     density: clamp(num('d') ?? 1, ...DENSITY_RANGE),
-    julia:
-      c.length === 2 && c.every(Number.isFinite)
-        ? [c[0]!, c[1]!]
-        : (def.defaultJulia ?? [0, 0]),
-    sequenceText,
-    sequence: parseSequence(sequenceText) ?? [0, 1],
+    params,
     grid: q.get('grid') !== '0',
   };
 }
@@ -107,7 +115,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       { class: 'map-buttons' },
       mapButton('+', 'Приблизить', () => zoomBy(0.5)),
       mapButton('−', 'Отдалить', () => zoomBy(2)),
-      mapButton('⟲', 'Исходный вид', () => flyTo(def.home)),
+      mapButton('⟲', 'Исходный вид', () => flyTo(homeView())),
     ),
   );
   const yAxis = h('div', { class: 'plot-y', 'aria-hidden': 'true' });
@@ -166,35 +174,93 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     ),
   );
 
+  const has = (control: FractalDef['controls'][number]): boolean => def.controls.includes(control);
+  const setParams = (patch: Partial<FractalParams>): void => {
+    state.params = { ...state.params, ...patch };
+  };
+  const formulaEl = h('p', { class: 'formula' });
+  const updateFormula = (): void => {
+    formulaEl.textContent = formulaText(def, state.params);
+  };
+  updateFormula();
+
+  // Ручки параметров — только те, что есть у этого фрактала.
+  const paramFields: HTMLElement[] = [];
   let juliaPicker: ReturnType<typeof createJuliaPicker> | null = null;
+  let powerGroup: ReturnType<typeof segmentedField> | null = null;
+  let polySelect: HTMLSelectElement | null = null;
   let sequenceInput: HTMLInputElement | null = null;
-  if (def.id === 'julia') {
-    juliaPicker = createJuliaPicker(shared, state.julia, (c) => {
-      state.julia = c;
+  const phoenixFields: ReturnType<typeof linearField>[] = [];
+
+  if (has('julia')) {
+    juliaPicker = createJuliaPicker(shared, () => state.params.power, state.params.param, (c) => {
+      setParams({ param: c });
       requestFrame(true);
     });
-    controls.prepend(juliaPicker.el);
+    paramFields.push(juliaPicker.el);
   }
-  if (def.id === 'lyapunov') {
-    sequenceInput = h('input', {
+
+  if (has('power')) {
+    const powers = Array.from({ length: POWER_RANGE[1] - POWER_RANGE[0] + 1 }, (_, i) => POWER_RANGE[0] + i);
+    powerGroup = segmentedField('Степень d', powers, state.params.power, (power) => {
+      setParams({ power });
+      updateFormula();
+      juliaPicker?.redraw();
+      // На обзорном масштабе центрируем: при d ≥ 3 множество симметрично относительно нуля,
+      // а исходный вид смещён под тело обычного Мандельброта. Приближенный вид не трогаем.
+      if (state.view.span >= def.home.span / 1.5) flyTo(homeView());
+      else requestFrame(false);
+    });
+    paramFields.push(powerGroup.el);
+  }
+
+  if (has('phoenix')) {
+    (['p', 'q'] as const).forEach((name, i) => {
+      const field = linearField(name, PHOENIX_RANGE, state.params.param[i]!, (v) => {
+        const param: [number, number] = [...state.params.param];
+        param[i] = v;
+        setParams({ param });
+        requestFrame(true);
+      });
+      phoenixFields.push(field);
+      paramFields.push(field.el);
+    });
+  }
+
+  if (has('poly')) {
+    const select = h(
+      'select',
+      { class: 'mini-select', 'aria-label': 'Многочлен p(z)' },
+      ...NEWTON_POLYNOMIALS.map((poly) => h('option', { value: poly.id, selected: poly.id === state.params.poly }, poly.label)),
+    );
+    select.addEventListener('change', () => {
+      setParams({ poly: select.value });
+      updateFormula();
+      flyTo({ cx: 0, cy: 0, span: findPolynomial(select.value).span });
+    });
+    polySelect = select;
+    paramFields.push(h('label', { class: 'field field-poly' }, h('span', { class: 'field-label' }, 'Многочлен p(z)'), select));
+  }
+
+  if (has('sequence')) {
+    const input = h('input', {
       class: 'text-input',
       type: 'text',
-      value: state.sequenceText,
+      value: state.params.sequence,
       maxlength: '16',
       spellcheck: 'false',
       autocomplete: 'off',
       'aria-label': 'Последовательность из букв A и B',
     });
-    const input = sequenceInput;
     input.addEventListener('input', () => {
-      const seq = parseSequence(input.value);
-      input.setAttribute('aria-invalid', String(!seq));
-      if (!seq) return;
-      state.sequenceText = input.value.trim().toUpperCase();
-      state.sequence = seq;
+      const valid = parseSequence(input.value) !== null;
+      input.setAttribute('aria-invalid', String(!valid));
+      if (!valid) return;
+      setParams({ sequence: input.value.trim().toUpperCase() });
       requestFrame(false);
     });
-    controls.prepend(
+    sequenceInput = input;
+    paramFields.push(
       h(
         'label',
         { class: 'field' },
@@ -204,13 +270,31 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       ),
     );
   }
+  controls.prepend(...paramFields);
+
+  /** Исходный вид с учётом степени: для d > 2 — по центру. */
+  function homeView(): View {
+    return has('power') && state.params.power !== 2 ? { ...def.home, cx: 0, cy: 0 } : def.home;
+  }
+
+  /** Подтягивает все ручки к state.params — после клика по известному месту. */
+  function syncControls(): void {
+    const { power, param, poly, sequence } = state.params;
+    juliaPicker?.set(param);
+    juliaPicker?.redraw();
+    powerGroup?.set(power);
+    phoenixFields.forEach((field, i) => field.set(param[i]!));
+    if (polySelect) polySelect.value = poly;
+    if (sequenceInput) sequenceInput.value = sequence;
+    updateFormula();
+  }
 
   const card = h(
     'article',
     { class: 'card viewer' },
     h('p', { class: 'overline' }, `${def.overline}`),
     h('h1', { class: 'headline' }, def.name),
-    h('p', { class: 'formula' }, def.formula),
+    formulaEl,
     h(
       'div',
       { class: 'metrics' },
@@ -292,14 +376,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   }
 
   function drawParams(): DrawParams {
-    return {
-      fractal: def,
-      view: state.view,
-      iterations: iterations(),
-      density: state.density,
-      julia: state.julia,
-      sequence: state.sequence,
-    };
+    return drawParamsFor(def, state.view, state.params, state.iterBase, state.density);
   }
 
   /** Запросить перерисовку: интерактивную (быстро, грубо) или финальную. */
@@ -458,18 +535,15 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   }
 
   function applyLocation(loc: Location): void {
-    if (loc.julia) {
-      state.julia = loc.julia;
-      juliaPicker?.set(loc.julia);
-    }
-    if (loc.sequence) {
-      const seq = parseSequence(loc.sequence);
-      if (seq) {
-        state.sequence = seq;
-        state.sequenceText = loc.sequence;
-        if (sequenceInput) sequenceInput.value = loc.sequence;
-      }
-    }
+    // Место без явной степени или многочлена задано для значений по умолчанию.
+    const defaults = defaultParams(def);
+    setParams({
+      param: loc.param ?? state.params.param,
+      sequence: loc.sequence && parseSequence(loc.sequence) ? loc.sequence : state.params.sequence,
+      power: loc.power ?? defaults.power,
+      poly: loc.poly ?? defaults.poly,
+    });
+    syncControls();
     flyTo(loc.view);
     area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -586,7 +660,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       '+': () => zoomBy(0.5),
       '=': () => zoomBy(0.5),
       '-': () => zoomBy(2),
-      '0': () => flyTo(def.home),
+      '0': () => flyTo(homeView()),
     };
     const action = actions[e.key];
     if (action) {
@@ -610,11 +684,14 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     q.set('s', state.view.span.toPrecision(4));
     if (state.iterBase !== def.iterations.base) q.set('it', String(state.iterBase));
     if (Math.abs(state.density - 1) > 0.005) q.set('d', state.density.toFixed(2));
-    if (def.id === 'julia') q.set('c', state.julia.map((v) => Number(v.toFixed(6))).join(','));
-    if (def.id === 'lyapunov') q.set('seq', state.sequenceText);
+    const pair = state.params.param.map((v) => Number(v.toFixed(6))).join(',');
+    if (has('julia')) q.set('c', pair);
+    if (has('phoenix')) q.set('pq', pair);
+    if (has('power') && state.params.power !== 2) q.set('pow', String(state.params.power));
+    if (has('poly')) q.set('poly', state.params.poly);
+    if (has('sequence')) q.set('seq', state.params.sequence);
     if (!state.grid) q.set('grid', '0');
-    q.set('p', currentPalette().id);
-    replaceQuery(def.id, q);
+    replaceQuery(def.id, writePaletteQuery(q));
   }
 
   // ---------- Подписки ----------
@@ -666,12 +743,67 @@ function sliderField(
   return { el, output };
 }
 
+/** Ползунок с линейной шкалой и числом справа — для p и q Феникса. */
+function linearField(
+  label: string,
+  [lo, hi]: [number, number],
+  value: number,
+  onInput: (value: number) => void,
+): { el: HTMLElement; set: (value: number) => void } {
+  const toPos = (v: number): number => Math.round(((v - lo) / (hi - lo)) * SLIDER_MAX);
+  const show = (v: number): void => {
+    field.output.textContent = formatFixed(v, 3);
+  };
+  const field = sliderField(label, toPos(value), (pos) => {
+    const v = lo + ((hi - lo) * pos) / SLIDER_MAX;
+    show(v);
+    onInput(v);
+  });
+  show(value);
+  return {
+    el: field.el,
+    set: (v) => {
+      field.el.querySelector('input')!.value = String(toPos(v));
+      show(v);
+    },
+  };
+}
+
+/** Ряд кнопок-таблеток для небольшого набора значений, как вкладки над графиком. */
+function segmentedField(
+  label: string,
+  options: number[],
+  value: number,
+  onChange: (value: number) => void,
+): { el: HTMLElement; set: (value: number) => void } {
+  const buttons = options.map((option) =>
+    h('button', { class: 'seg', type: 'button', 'aria-pressed': String(option === value) }, String(option)),
+  );
+  const set = (next: number): void => {
+    buttons.forEach((b, i) => b.setAttribute('aria-pressed', String(options[i] === next)));
+  };
+  buttons.forEach((button, i) =>
+    button.addEventListener('click', () => {
+      set(options[i]!);
+      onChange(options[i]!);
+    }),
+  );
+  const el = h(
+    'div',
+    { class: 'field field-seg' },
+    h('span', { class: 'field-label' }, label),
+    h('div', { class: 'segmented', role: 'group', 'aria-label': label }, ...buttons),
+  );
+  return { el, set };
+}
+
 /**
  * Мини-карта Мандельброта для выбора c: каждая точка множества Мандельброта
  * соответствует связному множеству Жюлиа, точки снаружи — «пыли Фату».
  */
 function createJuliaPicker(
   shared: Renderer,
+  getPower: () => number,
   initial: [number, number],
   onChange: (c: [number, number]) => void,
 ): { el: HTMLElement; set: (c: [number, number]) => void; redraw: () => void } {
@@ -688,9 +820,10 @@ function createJuliaPicker(
 
   const place = (): void => {
     const size = box.clientWidth || 1;
-    const unit = PICKER_VIEW.span / size;
-    marker.style.left = `${size / 2 + (c[0] - PICKER_VIEW.cx) / unit}px`;
-    marker.style.top = `${size / 2 - (c[1] - PICKER_VIEW.cy) / unit}px`;
+    const view = pickerView(getPower());
+    const unit = view.span / size;
+    marker.style.left = `${size / 2 + (c[0] - view.cx) / unit}px`;
+    marker.style.top = `${size / 2 - (c[1] - view.cy) / unit}px`;
     value.textContent = formatComplex(c);
     box.setAttribute('aria-valuetext', `c = ${formatComplex(c)}`);
   };
@@ -700,14 +833,8 @@ function createJuliaPicker(
     shared.setPalette(colors());
     shared.canvas.width = size;
     shared.canvas.height = size;
-    shared.draw({
-      fractal: MANDELBROT,
-      view: PICKER_VIEW,
-      iterations: 120,
-      density: 1,
-      julia: [0, 0],
-      sequence: [0, 1],
-    });
+    const power = getPower();
+    shared.draw(drawParamsFor(MANDELBROT, pickerView(power), { ...defaultParams(MANDELBROT), power }, 120, 1));
     canvas.width = size;
     canvas.height = size;
     canvas.getContext('2d')?.drawImage(shared.canvas, 0, 0);
@@ -716,10 +843,11 @@ function createJuliaPicker(
 
   const pick = (e: PointerEvent): void => {
     const rect = box.getBoundingClientRect();
-    const unit = PICKER_VIEW.span / rect.width;
+    const view = pickerView(getPower());
+    const unit = view.span / rect.width;
     c = [
-      clamp(PICKER_VIEW.cx + (e.clientX - rect.left - rect.width / 2) * unit, -2, 2),
-      clamp(PICKER_VIEW.cy - (e.clientY - rect.top - rect.height / 2) * unit, -2, 2),
+      clamp(view.cx + (e.clientX - rect.left - rect.width / 2) * unit, -2, 2),
+      clamp(view.cy - (e.clientY - rect.top - rect.height / 2) * unit, -2, 2),
     ];
     place();
     onChange(c);

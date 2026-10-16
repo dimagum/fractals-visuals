@@ -1,5 +1,6 @@
-import type { FractalDef, View } from './fractals';
+import { effectiveIterations, parseSequence, type FractalDef, type FractalParams, type View } from './fractals';
 import { bakeGradient, hexToRgb, type PaletteColors } from './palettes';
+import { MAX_DEGREE, findPolynomial, findRoots, type Complex } from './polynomial';
 import { BLIT_FRAGMENT, VERTEX_SHADER, fragmentSource } from './shaders';
 
 export interface DrawParams {
@@ -7,9 +8,41 @@ export interface DrawParams {
   view: View;
   iterations: number;
   density: number;
-  julia: [number, number];
+  /** Степень d; у фракталов без этой ручки всегда 2. */
+  power: number;
+  /** c для Жюлиа или (p, q) для Феникса. */
+  param: [number, number];
   /** 0 = A, 1 = B. */
   sequence: number[];
+  poly: { coeffs: number[]; roots: Complex[] };
+}
+
+const rootsCache = new Map<string, Complex[]>();
+
+/** Собирает параметры кадра из значений ручек — общий путь для карты, превью и экспорта. */
+export function drawParamsFor(
+  def: FractalDef,
+  view: View,
+  params: FractalParams,
+  iterBase: number,
+  density: number,
+): DrawParams {
+  const poly = findPolynomial(params.poly);
+  let roots = rootsCache.get(poly.id);
+  if (!roots) {
+    roots = findRoots(poly.coeffs);
+    rootsCache.set(poly.id, roots);
+  }
+  return {
+    fractal: def,
+    view,
+    iterations: effectiveIterations(def, iterBase, view.span),
+    density,
+    power: def.controls.includes('power') ? params.power : 2,
+    param: params.param,
+    sequence: parseSequence(params.sequence) ?? [0, 1],
+    poly: { coeffs: poly.coeffs, roots },
+  };
 }
 
 interface Program {
@@ -28,8 +61,12 @@ const FRACTAL_UNIFORMS = [
   'u_palette',
   'u_inside',
   'u_param',
+  'u_power',
   'u_seq',
   'u_seqLen',
+  'u_coeffs',
+  'u_degree',
+  'u_roots',
   'u_zero',
 ];
 
@@ -59,6 +96,8 @@ export class Renderer {
   private lowFbo: WebGLFramebuffer | null = null;
   private lowSize: [number, number] = [0, 0];
   private readonly seqBuffer = new Int32Array(MAX_SEQUENCE);
+  private readonly coeffBuffer = new Float32Array(MAX_DEGREE + 1);
+  private readonly rootBuffer = new Float32Array(MAX_DEGREE * 2);
   private readonly syncPixel = new Uint8Array(4);
 
   constructor(readonly canvas: HTMLCanvasElement) {
@@ -153,7 +192,16 @@ export class Renderer {
     gl.uniform1i(u.get('u_maxIter')!, params.iterations);
     gl.uniform1f(u.get('u_density')!, params.density * fractal.colorScale);
     gl.uniform3f(u.get('u_inside')!, ...this.inside);
-    gl.uniform2f(u.get('u_param')!, params.julia[0], params.julia[1]);
+    gl.uniform2f(u.get('u_param')!, params.param[0], params.param[1]);
+    gl.uniform1i(u.get('u_power')!, params.power);
+
+    this.coeffBuffer.fill(0);
+    this.coeffBuffer.set(params.poly.coeffs);
+    this.rootBuffer.fill(0);
+    this.rootBuffer.set(params.poly.roots.flat());
+    gl.uniform1fv(u.get('u_coeffs')!, this.coeffBuffer);
+    gl.uniform1i(u.get('u_degree')!, params.poly.coeffs.length - 1);
+    gl.uniform2fv(u.get('u_roots')!, this.rootBuffer);
     gl.uniform1i(u.get('u_zero')!, 0);
 
     const seq = params.sequence.slice(0, MAX_SEQUENCE);
