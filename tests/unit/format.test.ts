@@ -1,0 +1,63 @@
+import { describe, expect, it } from 'vitest';
+import { formatFixed, formatZoom, minus } from '../../src/dom';
+import { exportDimensions } from '../../src/export';
+import { FRACTALS, effectiveIterations, findFractal, parseSequence } from '../../src/fractals';
+import { formatComplex } from '../../src/locations';
+
+describe('форматирование чисел', () => {
+  it('ставит типографский минус и не пишет «−0»', () => {
+    expect(minus('-1.5')).toBe('−1.5');
+    expect(formatFixed(-0.25, 2)).toBe('−0.25');
+    expect(formatFixed(-0.0001, 2)).toBe('0.00');
+    expect(formatFixed(-0, 0)).toBe('0');
+  });
+
+  it('пишет увеличение с разрядами или степенью', () => {
+    expect(formatZoom(1)).toBe('×1');
+    expect(formatZoom(2.54)).toBe('×2,5');
+    expect(formatZoom(21667).replace(/\s/g, ' ')).toBe('×21 667');
+    expect(formatZoom(2.2e11)).toBe('×2.2·10¹¹');
+  });
+
+  it('пишет комплексное число', () => {
+    expect(formatComplex([-0.123, 0.745])).toBe('−0.123 + 0.745i');
+    expect(formatComplex([0.285, -0.01])).toBe('0.285 − 0.010i');
+  });
+});
+
+describe('параметры фракталов', () => {
+  it('разбирает последовательность Ляпунова', () => {
+    expect(parseSequence('AB')).toEqual([0, 1]);
+    expect(parseSequence(' aabab ')).toEqual([0, 0, 1, 0, 1]);
+    expect(parseSequence('AAAA')).toBeNull(); // нужны обе буквы
+    expect(parseSequence('ABC')).toBeNull();
+    expect(parseSequence('AB'.repeat(9))).toBeNull(); // длиннее 16
+  });
+
+  it('добавляет итерации с каждой октавой зума и упирается в максимум', () => {
+    const def = findFractal('mandelbrot')!;
+    const base = def.iterations.base;
+    expect(effectiveIterations(def, base, def.home.span)).toBe(base);
+    expect(effectiveIterations(def, base, def.home.span / 2)).toBe(base + def.iterations.perOctave);
+    expect(effectiveIterations(def, base, 1e-300)).toBe(def.iterations.max);
+  });
+
+  it('у каждого фрактала корректные виды и места', () => {
+    for (const def of FRACTALS) {
+      expect(def.home.span).toBeGreaterThanOrEqual(def.minSpan);
+      expect(def.home.span).toBeLessThanOrEqual(def.maxSpan);
+      for (const loc of def.locations) {
+        expect(loc.view.span, `${def.id}: ${loc.name}`).toBeGreaterThanOrEqual(def.minSpan);
+      }
+    }
+  });
+});
+
+describe('exportDimensions', () => {
+  it('сохраняет пропорции карты', () => {
+    expect(exportDimensions('screen', [1200, 700], 1.7)).toEqual([1200, 700]);
+    expect(exportDimensions('fhd', [0, 0], 16 / 9)).toEqual([1920, 1080]);
+    expect(exportDimensions('4k', [0, 0], 1)).toEqual([3840, 3840]);
+    expect(exportDimensions('4k', [0, 0], 0.5)).toEqual([1920, 3840]);
+  });
+});

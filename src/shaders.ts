@@ -67,7 +67,7 @@ vec3 escapeColor(float nu) {
  * до нуля. Барьер B() прогоняет число через XOR битов с uniform-нулём: для
  * компилятора результат непрозрачен, и переставить операции через него нельзя.
  */
-const DF64 = /* glsl */ `
+export const DF64 = /* glsl */ `
 float B(float x) { return intBitsToFloat(floatBitsToInt(x) ^ u_zero); }
 
 vec2 quickTwoSum(float a, float b) {
