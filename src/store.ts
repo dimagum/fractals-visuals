@@ -63,7 +63,7 @@ function notify(): void {
 }
 
 export function paletteById(id: string): Palette {
-  return id === CUSTOM_ID ? { id: CUSTOM_ID, name: 'Своя', ...custom } : findPalette(id);
+  return id === CUSTOM_ID ? { id: CUSTOM_ID, name: { ru: 'Своя', en: 'Custom' }, ...custom } : findPalette(id);
 }
 
 export function currentPalette(): Palette {

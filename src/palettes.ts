@@ -1,3 +1,5 @@
+import type { L10n } from './i18n';
+
 /**
  * Цветовые гаммы. Каждая гамма — градиент от «дальнего» фона (точки, быстро
  * убегающие на бесконечность) к границе множества, отдельный цвет для точек
@@ -11,7 +13,7 @@ export interface PaletteColors {
 
 export interface Palette extends PaletteColors {
   id: string;
-  name: string;
+  name: L10n;
   /** Вариант для тёмной темы, если светлый не смотрится на тёмном фоне. */
   dark?: PaletteColors;
 }
@@ -19,7 +21,7 @@ export interface Palette extends PaletteColors {
 export const PALETTES: Palette[] = [
   {
     id: 'ink',
-    name: 'Чернила',
+    name: { ru: 'Чернила', en: 'Ink' },
     stops: ['#f7f5ee', '#e4dfd2', '#a9a395', '#4a4740', '#151513', '#4a4740', '#cfc9bb'],
     inside: '#151513',
     accent: '#171614',
@@ -31,7 +33,7 @@ export const PALETTES: Palette[] = [
   },
   {
     id: 'bulletin',
-    name: 'Бюллетень',
+    name: { ru: 'Бюллетень', en: 'Bulletin' },
     stops: ['#f7f5ee', '#f2c4b9', '#dc4a3d', '#5a1a14', '#151a3d', '#2f55e4', '#c3d0fa'],
     inside: '#0e1230',
     accent: '#2f55e4',
@@ -43,28 +45,28 @@ export const PALETTES: Palette[] = [
   },
   {
     id: 'magma',
-    name: 'Магма',
+    name: { ru: 'Магма', en: 'Magma' },
     stops: ['#000004', '#2c115f', '#721f81', '#b73779', '#f1605d', '#feb078', '#fcfdbf'],
     inside: '#000004',
     accent: '#e0466c',
   },
   {
     id: 'viridis',
-    name: 'Виридис',
+    name: { ru: 'Виридис', en: 'Viridis' },
     stops: ['#440154', '#414487', '#2a788e', '#22a884', '#7ad151', '#fde725'],
     inside: '#1d0626',
     accent: '#1f9e89',
   },
   {
     id: 'ocean',
-    name: 'Океан',
+    name: { ru: 'Океан', en: 'Ocean' },
     stops: ['#020b16', '#08304f', '#13659b', '#4aa3d0', '#bfe3ef', '#fdf9ec'],
     inside: '#020b16',
     accent: '#2186c4',
   },
   {
     id: 'sunset',
-    name: 'Закат',
+    name: { ru: 'Закат', en: 'Sunset' },
     stops: ['#160a26', '#4b1550', '#a01e5c', '#e0484a', '#f99a3e', '#ffe08a', '#fff7dc'],
     inside: '#160a26',
     accent: '#f0633f',

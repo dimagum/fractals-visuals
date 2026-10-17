@@ -16,6 +16,8 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL: 'http://localhost:4173/',
+    // Язык интерфейса выбирается по языку браузера; тесты пишутся под русский.
+    locale: 'ru-RU',
   },
   projects: [
     {

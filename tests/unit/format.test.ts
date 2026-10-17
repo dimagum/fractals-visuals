@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { formatFixed, formatZoom, minus } from '../../src/dom';
 import { exportDimensions } from '../../src/export';
 import { FRACTALS, effectiveIterations, findFractal, parseSequence } from '../../src/fractals';
+import { setLang } from '../../src/i18n';
 import { formatComplex } from '../../src/locations';
 
 describe('форматирование чисел', () => {
+  beforeEach(() => setLang('ru'));
+  afterEach(() => setLang('ru'));
+
   it('ставит типографский минус и не пишет «−0»', () => {
     expect(minus('-1.5')).toBe('−1.5');
     expect(formatFixed(-0.25, 2)).toBe('−0.25');
@@ -17,6 +21,12 @@ describe('форматирование чисел', () => {
     expect(formatZoom(2.54)).toBe('×2,5');
     expect(formatZoom(21667).replace(/\s/g, ' ')).toBe('×21 667');
     expect(formatZoom(2.2e11)).toBe('×2.2·10¹¹');
+  });
+
+  it('в английском интерфейсе — точка и запятая-разделитель разрядов', () => {
+    setLang('en');
+    expect(formatZoom(2.54)).toBe('×2.5');
+    expect(formatZoom(21667)).toBe('×21,667');
   });
 
   it('пишет комплексное число', () => {

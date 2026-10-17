@@ -1,5 +1,6 @@
 import type { PaletteColors } from './palettes';
 import { Renderer, type DrawParams } from './renderer';
+import { t } from './i18n';
 
 /** Бюджет на одну полосу, мс: держит GPU отзывчивым и не будит сторожевой таймер драйвера. */
 const STRIP_BUDGET_MS = 60;
@@ -61,10 +62,10 @@ export function downloadBlob(blob: Blob, filename: string): void {
 
 export type ExportSize = 'screen' | 'fhd' | '4k';
 
-export const EXPORT_SIZES: { id: ExportSize; label: string }[] = [
-  { id: 'screen', label: 'Как на экране' },
-  { id: 'fhd', label: 'Full HD' },
-  { id: '4k', label: '4K' },
+export const EXPORT_SIZES: { id: ExportSize; label: () => string }[] = [
+  { id: 'screen', label: () => t('exportScreen') },
+  { id: 'fhd', label: () => 'Full HD' },
+  { id: '4k', label: () => '4K' },
 ];
 
 /** Размер картинки с пропорциями карты: длинная сторона 1920 или 3840 пикселей. */

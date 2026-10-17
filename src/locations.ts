@@ -1,6 +1,7 @@
 import { formatFixed, formatZoom, h } from './dom';
 import type { Control, FractalDef, Location } from './fractals';
 import { findPolynomial } from './polynomial';
+import { t, tr } from './i18n';
 
 /** Подпись для параметра c множества Жюлиа: «−0.123 + 0.745i». */
 export function formatComplex([re, im]: [number, number], decimals = 3): string {
@@ -11,17 +12,17 @@ export function formatComplex([re, im]: [number, number], decimals = 3): string 
 /** Колонка параметра в таблице мест: у каждого фрактала своя или никакой. */
 function paramColumn(def: FractalDef): { header: string; cell: (loc: Location) => string } | null {
   const has = (control: Control): boolean => def.controls.includes(control);
-  if (has('julia')) return { header: 'Параметр c', cell: (loc) => (loc.param ? formatComplex(loc.param) : '—') };
+  if (has('julia')) return { header: t('juliaParam'), cell: (loc) => (loc.param ? formatComplex(loc.param) : '—') };
   if (has('phoenix')) {
     return {
       header: 'p, q',
       cell: (loc) => (loc.param ? `${formatFixed(loc.param[0], 3)}, ${formatFixed(loc.param[1], 3)}` : '—'),
     };
   }
-  if (has('sequence')) return { header: 'Последовательность', cell: (loc) => loc.sequence ?? '—' };
-  if (has('poly')) return { header: 'Многочлен', cell: (loc) => findPolynomial(loc.poly).label };
+  if (has('sequence')) return { header: t('sequence'), cell: (loc) => loc.sequence ?? '—' };
+  if (has('poly')) return { header: t('polynomialColumn'), cell: (loc) => findPolynomial(loc.poly).label };
   if (has('power') && def.locations.some((loc) => loc.power)) {
-    return { header: 'Степень', cell: (loc) => `d = ${loc.power ?? 2}` };
+    return { header: t('powerColumn'), cell: (loc) => `d = ${loc.power ?? 2}` };
   }
   return null;
 }
@@ -45,12 +46,12 @@ export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) 
   let filter = '';
 
   const tbody = h('tbody');
-  const sortButton = h('button', { class: 'th-sort', type: 'button' }, 'Увеличение');
+  const sortButton = h('button', { class: 'th-sort', type: 'button' }, t('zoom'));
   const search = h('input', {
     class: 'search',
     type: 'search',
-    placeholder: 'Поиск по таблице',
-    'aria-label': 'Поиск по таблице',
+    placeholder: t('searchTable'),
+    'aria-label': t('searchTable'),
   });
 
   const rowFor = (loc: Location): HTMLTableRowElement => {
@@ -59,8 +60,8 @@ export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) 
     const param = paramCol?.cell(loc) ?? null;
     const row = h(
       'tr',
-      { tabindex: '0', 'aria-label': `Перейти: ${loc.name}` },
-      h('td', { class: 'td-name' }, h('span', { class: 'link' }, loc.name)),
+      { tabindex: '0', 'aria-label': t('goTo', { name: tr(loc.name) }) },
+      h('td', { class: 'td-name' }, h('span', { class: 'link' }, tr(loc.name))),
       showCenter &&
         h(
           'td',
@@ -98,7 +99,8 @@ export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) 
   const refresh = (): void => {
     const needle = filter.trim().toLowerCase();
     const visible = rows.filter(({ loc }) =>
-      `${loc.name} ${paramCol?.cell(loc) ?? ''}`.toLowerCase().includes(needle),
+      // Ищем по обоим языкам: место находится и по русскому, и по английскому названию.
+      `${loc.name.ru} ${loc.name.en} ${paramCol?.cell(loc) ?? ''}`.toLowerCase().includes(needle),
     );
     if (order !== 'none') {
       const dir = order === 'desc' ? -1 : 1;
@@ -108,10 +110,10 @@ export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) 
       ...visible.map((r) => r.row),
       ...(visible.length
         ? []
-        : [h('tr', { class: 'empty' }, h('td', { colspan: String(columns) }, 'Ничего не найдено'))]),
+        : [h('tr', { class: 'empty' }, h('td', { colspan: String(columns) }, t('nothingFound')))]),
     );
     sortButton.dataset.order = order;
-    sortButton.setAttribute('aria-label', `Сортировать по увеличению (${order === 'desc' ? 'по убыванию' : 'по возрастанию'})`);
+    sortButton.setAttribute('aria-label', t('sortByZoom', { order: t(order === 'desc' ? 'descending' : 'ascending') }));
   };
 
   sortButton.addEventListener('click', () => {
@@ -127,7 +129,7 @@ export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) 
   return h(
     'section',
     { class: 'locations' },
-    h('div', { class: 'locations-head' }, h('h2', { class: 'section-title' }, 'Известные места'), search),
+    h('div', { class: 'locations-head' }, h('h2', { class: 'section-title' }, t('locations')), search),
     h(
       'div',
       { class: 'table-scroll' },
@@ -140,7 +142,7 @@ export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) 
           h(
             'tr',
             {},
-            h('th', {}, 'Место'),
+            h('th', {}, t('place')),
             showCenter && h('th', {}, def.axes.join(', ')),
             paramHeader ? h('th', {}, paramHeader) : null,
             showZoom && h('th', { class: 'th-zoom' }, sortButton),

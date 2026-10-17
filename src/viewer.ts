@@ -14,11 +14,13 @@ import {
   type Location,
   type View,
 } from './fractals';
+import { createExplanation } from './explanation';
 import { createLocationsTable, formatComplex } from './locations';
 import { NEWTON_POLYNOMIALS, findPolynomial } from './polynomial';
 import { Renderer, drawParamsFor, needsDeep, type DrawParams } from './renderer';
 import { replaceQuery } from './router';
 import { colors, subscribe, writePaletteQuery } from './store';
+import { t, tr } from './i18n';
 
 interface ViewerState {
   view: View;
@@ -90,11 +92,11 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   // ---------- Разметка ----------
   const canvas = h('canvas', { class: 'plot-canvas' });
   const gridCanvas = h('canvas', { class: 'plot-grid', 'aria-hidden': 'true' });
-  const limitChip = h('span', { class: 'map-chip', hidden: true }, 'Предел точности');
+  const limitChip = h('span', { class: 'map-chip', hidden: true }, t('precisionLimit'));
   const wheelHint = h(
     'div',
     { class: 'wheel-hint', 'aria-hidden': 'true' },
-    h('span', {}, `Чтобы приблизить, крутите колесо с зажатым ${MODIFIER_LABEL} или кликните по карте`),
+    h('span', {}, t('wheelHint', { mod: MODIFIER_LABEL })),
   );
   const mapButton = (label: string, title: string, onclick: () => void): HTMLButtonElement =>
     h('button', { class: 'map-button', type: 'button', title, 'aria-label': title, onclick }, label);
@@ -104,7 +106,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       class: 'plot-area',
       tabindex: '0',
       role: 'application',
-      'aria-label': `Карта: ${def.name}. Стрелки — сдвиг, плюс и минус — масштаб, ноль — сброс.`,
+      'aria-label': t('mapLabel', { name: tr(def.name) }),
     },
     canvas,
     gridCanvas,
@@ -113,9 +115,9 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     h(
       'div',
       { class: 'map-buttons' },
-      mapButton('+', 'Приблизить', () => zoomBy(0.5)),
-      mapButton('−', 'Отдалить', () => zoomBy(2)),
-      mapButton('⟲', 'Исходный вид', () => flyTo(homeView())),
+      mapButton('+', t('zoomIn'), () => zoomBy(0.5)),
+      mapButton('−', t('zoomOut'), () => zoomBy(2)),
+      mapButton('⟲', t('homeView'), () => flyTo(homeView())),
     ),
   );
   const yAxis = h('div', { class: 'plot-y', 'aria-hidden': 'true' });
@@ -130,14 +132,14 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   const metric = (label: Node[], value: HTMLElement, accent = false): HTMLElement =>
     h('div', { class: `metric${accent ? ' metric-accent' : ''}` }, h('div', { class: 'metric-label' }, ...label), value);
 
-  const iterField = sliderField('Итерации', toSlider(state.iterBase, iterRange()), (s) => {
+  const iterField = sliderField(t('iterations'), toSlider(state.iterBase, iterRange()), (s) => {
     state.iterBase = Math.round(fromSlider(s, iterRange()));
     iterField.output.textContent = formatInt(state.iterBase);
     requestFrame(true);
   });
   iterField.output.textContent = formatInt(state.iterBase);
 
-  const densityField = sliderField('Плотность цвета', toSlider(state.density, DENSITY_RANGE), (s) => {
+  const densityField = sliderField(t('colorDensity'), toSlider(state.density, DENSITY_RANGE), (s) => {
     state.density = fromSlider(s, DENSITY_RANGE);
     densityField.output.textContent = `${state.density.toFixed(2)}×`;
     requestFrame(true);
@@ -153,10 +155,10 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
 
   const exportSelect = h(
     'select',
-    { class: 'mini-select', 'aria-label': 'Размер PNG' },
-    ...EXPORT_SIZES.map((size) => h('option', { value: size.id }, size.label)),
+    { class: 'mini-select', 'aria-label': t('exportSize') },
+    ...EXPORT_SIZES.map((size) => h('option', { value: size.id }, size.label())),
   );
-  const exportButton = h('button', { class: 'mini-button', type: 'button' }, 'Скачать PNG');
+  const exportButton = h('button', { class: 'mini-button', type: 'button' }, t('downloadPng'));
   let exportJob: ExportJob | null = null;
   exportButton.addEventListener('click', () => void runExport());
 
@@ -165,11 +167,11 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     { class: 'controls' },
     iterField.el,
     densityField.el,
-    h('label', { class: 'field field-switch' }, h('span', { class: 'field-label' }, 'Сетка'), gridToggle),
+    h('label', { class: 'field field-switch' }, h('span', { class: 'field-label' }, t('grid')), gridToggle),
     h(
       'div',
       { class: 'field field-export' },
-      h('span', { class: 'field-label' }, 'Экспорт'),
+      h('span', { class: 'field-label' }, t('export')),
       h('div', { class: 'field-row' }, exportSelect, exportButton),
     ),
   );
@@ -202,7 +204,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
 
   if (has('power')) {
     const powers = Array.from({ length: POWER_RANGE[1] - POWER_RANGE[0] + 1 }, (_, i) => POWER_RANGE[0] + i);
-    powerGroup = segmentedField('Степень d', powers, state.params.power, (power) => {
+    powerGroup = segmentedField(t('power'), powers, state.params.power, (power) => {
       setParams({ power });
       updateFormula();
       juliaPicker?.redraw();
@@ -230,7 +232,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   if (has('poly')) {
     const select = h(
       'select',
-      { class: 'mini-select', 'aria-label': 'Многочлен p(z)' },
+      { class: 'mini-select', 'aria-label': t('polynomial') },
       ...NEWTON_POLYNOMIALS.map((poly) => h('option', { value: poly.id, selected: poly.id === state.params.poly }, poly.label)),
     );
     select.addEventListener('change', () => {
@@ -239,7 +241,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       flyTo({ cx: 0, cy: 0, span: findPolynomial(select.value).span });
     });
     polySelect = select;
-    paramFields.push(h('label', { class: 'field field-poly' }, h('span', { class: 'field-label' }, 'Многочлен p(z)'), select));
+    paramFields.push(h('label', { class: 'field field-poly' }, h('span', { class: 'field-label' }, t('polynomial')), select));
   }
 
   if (has('sequence')) {
@@ -250,7 +252,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       maxlength: '16',
       spellcheck: 'false',
       autocomplete: 'off',
-      'aria-label': 'Последовательность из букв A и B',
+      'aria-label': t('sequenceLabel'),
     });
     input.addEventListener('input', () => {
       const valid = parseSequence(input.value) !== null;
@@ -264,9 +266,9 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       h(
         'label',
         { class: 'field' },
-        h('span', { class: 'field-label' }, 'Последовательность'),
+        h('span', { class: 'field-label' }, t('sequence')),
         input,
-        h('span', { class: 'field-hint' }, 'A и B, до 16 букв'),
+        h('span', { class: 'field-hint' }, t('sequenceHint')),
       ),
     );
   }
@@ -289,27 +291,35 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     updateFormula();
   }
 
+  const explanation = createExplanation(
+    def,
+    () => state.params,
+    () => state.view,
+    () => iterations(),
+  );
+
   const card = h(
     'article',
     { class: 'card viewer' },
-    h('p', { class: 'overline' }, `${def.overline}`),
-    h('h1', { class: 'headline' }, def.name),
+    h('p', { class: 'overline' }, tr(def.overline)),
+    h('h1', { class: 'headline' }, tr(def.name)),
     formulaEl,
     h(
       'div',
       { class: 'metrics' },
-      metric([h('span', { class: 'metric-name' }, 'Центр'), h('span', { class: 'badge' }, def.axes[0])], reValue, true),
-      metric([h('span', { class: 'metric-name' }, 'Центр'), h('span', { class: 'badge' }, def.axes[1])], imValue, true),
-      metric([h('span', { class: 'metric-name' }, 'Увеличение')], zoomValue),
-      metric([h('span', { class: 'metric-name' }, 'Итерации'), precisionChip], iterValue),
+      metric([h('span', { class: 'metric-name' }, t('center')), h('span', { class: 'badge' }, def.axes[0])], reValue, true),
+      metric([h('span', { class: 'metric-name' }, t('center')), h('span', { class: 'badge' }, def.axes[1])], imValue, true),
+      metric([h('span', { class: 'metric-name' }, t('zoom'))], zoomValue),
+      metric([h('span', { class: 'metric-name' }, t('iterations')), precisionChip], iterValue),
     ),
     h('div', { class: 'plot' }, yAxis, area, h('div', { class: 'plot-corner' }), xAxis),
-    h('p', { class: 'hint' }, `Тяните — сдвиг · ${MODIFIER_LABEL} + колесо или щипок — масштаб · двойной клик — приблизить (Shift — отдалить)`),
+    h('p', { class: 'hint' }, t('navHint', { mod: MODIFIER_LABEL })),
     controls,
     createLocationsTable(def, (loc) => applyLocation(loc)),
+    explanation.el,
   );
   root.append(card);
-  document.title = `${def.name} — Атлас фракталов`;
+  document.title = `${tr(def.name)} — ${t('siteName')}`;
 
   // ---------- Рендер ----------
   const renderer = new Renderer(canvas);
@@ -344,7 +354,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     );
     const params = { ...drawParams(), view: { ...state.view } };
     const setLabel = (fraction: number): void => {
-      exportButton.textContent = `Отмена · ${Math.round(fraction * 100)}%`;
+      exportButton.textContent = t('exportCancel', { percent: Math.round(fraction * 100) });
     };
     setLabel(0);
     exportButton.classList.add('is-busy');
@@ -353,10 +363,10 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       if (blob) downloadBlob(blob, exportFilename(params.view, width, height));
     } catch (err) {
       console.error(err);
-      window.alert('Не удалось сохранить картинку: видеокарта не справилась с таким размером.');
+      window.alert(t('exportFailed'));
     } finally {
       exportJob = null;
-      exportButton.textContent = 'Скачать PNG';
+      exportButton.textContent = t('downloadPng');
       exportButton.classList.remove('is-busy');
     }
   }
@@ -470,8 +480,8 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     const deep = needsDeep(def, state.view, canvas.height || cssH);
     precisionChip.textContent = deep ? 'df64' : 'fp32';
     precisionChip.title = deep
-      ? 'Эмуляция double: две float32 на координату'
-      : 'Обычная одинарная точность GPU';
+      ? t('precisionDf64')
+      : t('precisionFp32');
     limitChip.hidden = state.view.span > def.minSpan * 1.001;
   }
 
@@ -692,6 +702,9 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     if (has('sequence')) q.set('seq', state.params.sequence);
     if (!state.grid) q.set('grid', '0');
     replaceQuery(def.id, writePaletteQuery(q));
+    // Разбор внизу страницы следует за параметрами и центром карты; адрес
+    // обновляется с той же задержкой, так что пересчёт не идёт на каждый кадр.
+    explanation.update();
   }
 
   // ---------- Подписки ----------
@@ -812,7 +825,7 @@ function createJuliaPicker(
   const value = h('output', { class: 'field-value' });
   const box = h(
     'div',
-    { class: 'cpicker', role: 'slider', tabindex: '0', 'aria-label': 'Параметр c на множестве Мандельброта' },
+    { class: 'cpicker', role: 'slider', tabindex: '0', 'aria-label': t('juliaPicker') },
     canvas,
     marker,
   );
@@ -881,7 +894,7 @@ function createJuliaPicker(
   const el = h(
     'div',
     { class: 'field field-c' },
-    h('span', { class: 'field-label' }, 'Параметр c', value),
+    h('span', { class: 'field-label' }, t('juliaParam'), value),
     box,
   );
   return {

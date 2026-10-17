@@ -2,6 +2,7 @@ import { h } from './dom';
 import { FRACTALS, type FractalId } from './fractals';
 import { CUSTOM_ID, DEFAULT_CUSTOM, MAX_STOPS, PALETTES, gradientCss, type PaletteColors } from './palettes';
 import { colors, currentPalette, customColors, paletteById, setCustomColors, setPalette, subscribe } from './store';
+import { t, tr } from './i18n';
 
 interface ToolbarOptions {
   fractalId: FractalId | null;
@@ -39,7 +40,7 @@ export function createToolbar({ fractalId, onFractal }: ToolbarOptions): { el: H
         },
       },
       swatch,
-      paletteById(id).name,
+      tr(paletteById(id).name),
       isCustom ? h('span', { class: 'pill-edit', 'aria-hidden': 'true' }, '✎') : null,
     );
     return { id, button, swatch };
@@ -47,10 +48,10 @@ export function createToolbar({ fractalId, onFractal }: ToolbarOptions): { el: H
 
   const select = h(
     'select',
-    { class: 'picker-select', 'aria-label': 'Фрактал' },
-    fractalId ? null : h('option', { value: '', selected: true, disabled: true }, 'Выбрать фрактал'),
+    { class: 'picker-select', 'aria-label': t('fractal') },
+    fractalId ? null : h('option', { value: '', selected: true, disabled: true }, t('chooseFractal')),
     ...FRACTALS.map((f) =>
-      h('option', { value: f.id, selected: f.id === fractalId }, `${f.short} · ${f.tag}`),
+      h('option', { value: f.id, selected: f.id === fractalId }, `${tr(f.short)} · ${tr(f.tag)}`),
     ),
   );
   select.addEventListener('change', () => onFractal(select.value as FractalId));
@@ -87,8 +88,8 @@ export function createToolbar({ fractalId, onFractal }: ToolbarOptions): { el: H
     { class: 'toolbar-wrap' },
     h(
       'nav',
-      { class: 'toolbar', 'aria-label': 'Гамма и фрактал' },
-      h('div', { class: 'pills', role: 'group', 'aria-label': 'Цветовая гамма' }, ...pills.map((p) => p.button)),
+      { class: 'toolbar', 'aria-label': t('paletteAndFractal') },
+      h('div', { class: 'pills', role: 'group', 'aria-label': t('palette') }, ...pills.map((p) => p.button)),
       h('label', { class: 'picker' }, select),
     ),
     editor.el,
@@ -109,8 +110,8 @@ export function createToolbar({ fractalId, onFractal }: ToolbarOptions): { el: H
 function createPaletteEditor(onClose: () => void): { el: HTMLElement; refresh: () => void } {
   const stopsRow = h('div', { class: 'pe-stops' });
   const preview = h('div', { class: 'pe-preview', 'aria-hidden': 'true' });
-  const inside = colorInput('Цвет множества', '#000000', true);
-  const accent = colorInput('Акцент', '#000000', true);
+  const inside = colorInput(t('insideColor'), '#000000', true);
+  const accent = colorInput(t('accentColor'), '#000000', true);
 
   const update = (patch: Partial<PaletteColors>): void => setCustomColors({ ...customColors(), ...patch });
 
@@ -132,7 +133,7 @@ function createPaletteEditor(onClose: () => void): { el: HTMLElement; refresh: (
     }
     stopsRow.replaceChildren(
       ...c.stops.map((stop, i) => {
-        const field = colorInput(`Цвет ${i + 1}`, stop);
+        const field = colorInput(t('colorN', { n: i + 1 }), stop);
         field.input.addEventListener('input', () => {
           const stops = [...customColors().stops];
           stops[i] = field.input.value;
@@ -143,8 +144,8 @@ function createPaletteEditor(onClose: () => void): { el: HTMLElement; refresh: (
           {
             class: 'pe-remove',
             type: 'button',
-            title: 'Убрать цвет',
-            'aria-label': `Убрать цвет ${i + 1}`,
+            title: t('removeColor'),
+            'aria-label': t('removeColorN', { n: i + 1 }),
             disabled: c.stops.length <= 2,
           },
           '×',
@@ -157,8 +158,8 @@ function createPaletteEditor(onClose: () => void): { el: HTMLElement; refresh: (
         {
           class: 'pe-add',
           type: 'button',
-          title: 'Добавить цвет',
-          'aria-label': 'Добавить цвет',
+          title: t('addColor'),
+          'aria-label': t('addColor'),
           disabled: c.stops.length >= MAX_STOPS,
           onclick: () => update({ stops: [...customColors().stops, customColors().stops.at(-1)!] }),
         },
@@ -169,23 +170,23 @@ function createPaletteEditor(onClose: () => void): { el: HTMLElement; refresh: (
 
   const el = h(
     'section',
-    { class: 'palette-editor', id: 'palette-editor', 'aria-label': 'Своя гамма', hidden: true },
+    { class: 'palette-editor', id: 'palette-editor', 'aria-label': t('customPalette'), hidden: true },
     h(
       'div',
       { class: 'pe-head' },
-      h('p', { class: 'overline' }, 'Своя гамма'),
+      h('p', { class: 'overline' }, t('customPalette')),
       h(
         'div',
         { class: 'pe-actions' },
-        h('button', { class: 'pe-text-button', type: 'button', onclick: () => setCustomColors(DEFAULT_CUSTOM) }, 'Сбросить'),
-        h('button', { class: 'mini-button', type: 'button', onclick: onClose }, 'Готово'),
+        h('button', { class: 'pe-text-button', type: 'button', onclick: () => setCustomColors(DEFAULT_CUSTOM) }, t('reset')),
+        h('button', { class: 'mini-button', type: 'button', onclick: onClose }, t('done')),
       ),
     ),
     preview,
     h(
       'div',
       { class: 'pe-body' },
-      h('div', { class: 'pe-group' }, h('span', { class: 'field-label' }, 'Градиент: от фона к границе'), stopsRow),
+      h('div', { class: 'pe-group' }, h('span', { class: 'field-label' }, t('gradientLabel')), stopsRow),
       h('div', { class: 'pe-group pe-singles' }, inside.el, accent.el),
     ),
   );

@@ -109,6 +109,47 @@ select {
   transition: background-color 0.3s;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* Переключатель языка: две маленькие моноширинные таблетки. */
+.lang-switch {
+  display: inline-flex;
+  border: 1.5px solid var(--pill-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.lang-option {
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  font: 500 12px/1 var(--font-mono);
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.lang-option + .lang-option {
+  border-left: 1px solid var(--pill-border);
+}
+
+.lang-option:hover {
+  color: var(--ink);
+}
+
+.lang-option[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--bg);
+}
+
 .back-link {
   font: 500 13px/1 var(--font-mono);
   color: var(--muted);
@@ -1129,6 +1170,165 @@ tr:hover .link {
   padding-right: 8px;
   font: 400 13.5px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Как это строится ---------- */
+.explain {
+  margin-top: 44px;
+  padding-top: 34px;
+  border-top: 1px solid var(--line);
+}
+
+.explain-intro {
+  max-width: 68ch;
+  margin-top: 14px;
+}
+
+.explain-steps {
+  display: grid;
+  gap: 12px;
+  max-width: 76ch;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.explain-steps li {
+  position: relative;
+  padding-left: 44px;
+  line-height: 1.55;
+  counter-increment: step;
+}
+
+.explain-steps li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  padding: 3px 6px 2px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 11.5px/1.2 var(--font-mono);
+}
+
+.explain-steps strong {
+  font-weight: 600;
+}
+
+.explain-subtitle {
+  margin: 34px 0 14px;
+  font: 700 26px/1.1 var(--font-head);
+}
+
+.explain-formulas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 14px;
+}
+
+.explain-formula {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.explain-formula figcaption {
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.math-line {
+  overflow-x: auto;
+  font: 400 17px/1.7 'STIX Two Math', 'Cambria Math', Georgia, serif;
+  white-space: pre;
+}
+
+.math sub,
+.math sup,
+.math-inline sub,
+.math-inline sup {
+  font-size: 0.72em;
+  line-height: 0;
+}
+
+.explain-tabs {
+  max-width: 100%;
+  margin-bottom: 14px;
+  /* На узком экране вкладки прокручиваются внутри рамки, а не растягивают страницу. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.explain-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.explain-tabs .seg {
+  flex: none;
+}
+
+.explain-tabs .seg {
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  padding: 0 14px;
+}
+
+.explain-point {
+  margin: 0 0 6px;
+  font: 500 14px/1.4 var(--font-mono);
+}
+
+.explain-note {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.explain-table {
+  margin-top: 8px;
+}
+
+.explain-table th {
+  font-size: 15px;
+}
+
+.explain-table td {
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+
+.explain-table tbody tr {
+  cursor: default;
+}
+
+.explain-table tbody tr:hover {
+  background: none;
+}
+
+.explain-table tr.is-hit td {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.explain-gap td {
+  padding: 4px 0;
+  color: var(--muted);
+  text-align: left;
+}
+
+.explain-verdict {
+  max-width: 76ch;
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg);
+  border-radius: 0 10px 10px 0;
 }
 
 .notice {
