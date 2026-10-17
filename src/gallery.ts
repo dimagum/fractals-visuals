@@ -3,6 +3,7 @@ import { FRACTALS, defaultParams, type FractalDef } from './fractals';
 import { drawParamsFor, type Renderer } from './renderer';
 import { href } from './router';
 import { colors, subscribe } from './store';
+import { t, tr } from './i18n';
 
 /**
  * Галерея: сетка квадратных плиток с превью каждого фрактала. Превью рисует
@@ -14,14 +15,14 @@ export function mountGallery(root: HTMLElement, renderer: Renderer): () => void 
     const canvas = h('canvas', { class: 'tile-canvas', 'aria-hidden': 'true' });
     const el = h(
       'a',
-      { class: 'tile', href: href(def.id), 'aria-label': `${def.name}: ${def.blurb}` },
+      { class: 'tile', href: href(def.id), 'aria-label': `${tr(def.name)}: ${tr(def.blurb)}` },
       canvas,
       h('span', { class: 'tile-index' }, String(i + 1).padStart(2, '0')),
       h(
         'span',
         { class: 'tile-caption' },
-        h('span', { class: 'tile-name' }, def.short),
-        h('span', { class: 'tile-formula' }, def.formula),
+        h('span', { class: 'tile-name' }, tr(def.short)),
+        h('span', { class: 'tile-formula' }, tr(def.formula)),
       ),
     );
     return { def, el, canvas };
@@ -33,12 +34,12 @@ export function mountGallery(root: HTMLElement, renderer: Renderer): () => void 
     h(
       'header',
       { class: 'gallery-head' },
-      h('p', { class: 'overline' }, `Атлас · ${FRACTALS.length} фракталов`),
-      h('h1', { class: 'headline' }, 'Фракталы как карты'),
+      h('p', { class: 'overline' }, t('galleryOverline', { count: FRACTALS.length })),
+      h('h1', { class: 'headline' }, t('galleryTitle')),
       h(
         'p',
         { class: 'lede' },
-        'Самые известные фракталы, построенные по формулам прямо на видеокарте. Выберите плитку — и приближайте, пока хватает точности.',
+        t('galleryLede'),
       ),
     ),
     h('div', { class: 'tile-grid' }, ...tiles.map((t) => t.el)),

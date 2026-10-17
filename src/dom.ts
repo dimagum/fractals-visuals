@@ -1,3 +1,5 @@
+import { locale } from './i18n';
+
 type Child = Node | string | null | undefined | false;
 type Attrs = Record<string, unknown>;
 
@@ -57,7 +59,7 @@ export function formatFixed(value: number, decimals: number): string {
 export function formatZoom(zoom: number): string {
   if (zoom < 1e5) {
     const rounded = zoom < 10 ? Math.round(zoom * 10) / 10 : Math.round(zoom);
-    return `×${rounded.toLocaleString('ru-RU')}`;
+    return `×${rounded.toLocaleString(locale())}`;
   }
   const exp = Math.floor(Math.log10(zoom));
   const mantissa = (zoom / 10 ** exp).toFixed(1);
@@ -65,5 +67,5 @@ export function formatZoom(zoom: number): string {
 }
 
 export function formatInt(value: number): string {
-  return value.toLocaleString('ru-RU');
+  return value.toLocaleString(locale());
 }

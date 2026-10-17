@@ -14,6 +14,7 @@ import { navigate, parseRoute, replaceQuery } from './router';
 import { readPaletteQuery, subscribe, writePaletteQuery } from './store';
 import { createToolbar } from './toolbar';
 import { mountViewer } from './viewer';
+import { LANGS, currentLang, onLangChange, setLang, t } from './i18n';
 
 const app = document.getElementById('app')!;
 let teardown: (() => void) | null = null;
@@ -51,8 +52,13 @@ function render(): void {
       h(
         'header',
         { class: 'site-header' },
-        h('a', { class: 'wordmark', href: '#/' }, h('span', { class: 'wordmark-mark', 'aria-hidden': 'true' }), 'Атлас фракталов'),
-        def ? h('a', { class: 'back-link', href: '#/' }, '← Все фракталы') : null,
+        h('a', { class: 'wordmark', href: '#/' }, h('span', { class: 'wordmark-mark', 'aria-hidden': 'true' }), t('siteName')),
+        h(
+          'div',
+          { class: 'header-right' },
+          def ? h('a', { class: 'back-link', href: '#/' }, t('allFractals')) : null,
+          createLangSwitch(),
+        ),
       ),
       toolbar.el,
       main,
@@ -62,18 +68,18 @@ function render(): void {
 
   let dispose = (): void => {};
   if (!shared) {
-    main.append(notice('Нужен WebGL2', 'Фракталы считаются на видеокарте через WebGL2, а этот браузер его не поддерживает. Попробуйте свежий Chrome, Firefox или Safari.'));
+    main.append(notice(t('noWebglTitle'), t('noWebglText')));
   } else {
     try {
       if (def) {
         dispose = mountViewer(main, def, route.query, shared);
       } else {
-        document.title = 'Атлас фракталов';
+        document.title = t('siteName');
         dispose = mountGallery(main, shared);
       }
     } catch (err) {
       console.error(err);
-      main.replaceChildren(notice('Не удалось нарисовать', err instanceof Error ? err.message : String(err)));
+      main.replaceChildren(notice(t('renderFailed'), err instanceof Error ? err.message : String(err)));
     }
   }
 
@@ -89,5 +95,28 @@ subscribe(() => {
   if (!findFractal(route.fractal)) replaceQuery(null, writePaletteQuery(new URLSearchParams()));
 });
 
+/** Переключатель языка в шапке: RU / EN. Смена языка перерисовывает экран — вид при этом хранится в адресе. */
+function createLangSwitch(): HTMLElement {
+  return h(
+    'div',
+    { class: 'lang-switch', role: 'group', 'aria-label': t('language') },
+    ...LANGS.map((l) =>
+      h(
+        'button',
+        {
+          class: 'lang-option',
+          type: 'button',
+          lang: l.id,
+          title: l.name,
+          'aria-pressed': String(l.id === currentLang()),
+          onclick: () => setLang(l.id),
+        },
+        l.label,
+      ),
+    ),
+  );
+}
+
+onLangChange(render);
 window.addEventListener('hashchange', render);
 render();

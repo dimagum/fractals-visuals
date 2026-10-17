@@ -113,3 +113,45 @@ test('многочлен Ньютона выбирается из списка',
   await expect(page.locator('.formula')).toContainText('z⁸ + 15z⁴ − 16');
   await expect(page).toHaveURL(/poly=z8%2B15z4-16/);
 });
+
+test('переключатель языка переводит интерфейс и сохраняет вид', async ({ page }) => {
+  await page.goto('./#/mandelbrot?x=-0.7453&y=0.1127&s=0.0065&p=ink');
+  await expect(page.locator('.headline')).toHaveText('Множество Мандельброта');
+  await page.getByRole('button', { name: 'EN' }).click();
+  await expect(page.locator('.headline')).toHaveText('Mandelbrot set');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page).toHaveURL(/x=-0\.7453/);
+  const text = await page.locator('body').innerText();
+  expect(text).not.toMatch(/[А-Яа-яЁё]/);
+
+  // Выбор запоминается: после перезагрузки остаётся английский.
+  await page.reload();
+  await expect(page.locator('.headline')).toHaveText('Mandelbrot set');
+  await page.getByRole('button', { name: 'RU' }).click();
+  await expect(page.locator('.headline')).toHaveText('Множество Мандельброта');
+});
+
+test('браузер на английском сразу получает английский интерфейс', async ({ browser }) => {
+  const context = await browser.newContext({ locale: 'en-US' });
+  const page = await context.newPage();
+  await page.goto('./');
+  await expect(page.locator('.headline')).toHaveText('Fractals as maps');
+  await context.close();
+});
+
+test('разбор на примере считает орбиту и следует за параметрами', async ({ page }) => {
+  await page.goto('./#/mandelbrot?p=ink');
+  const section = page.locator('.explain');
+  await expect(section.getByRole('heading', { name: 'Как это строится' })).toBeVisible();
+  // c = 0.5 + 0.5i: z₂ = 0.5 + i, выход на 5-м шаге.
+  await expect(section.locator('.explain-table tbody tr').nth(2)).toContainText('0.5000 + 1.0000i');
+  await expect(section.locator('.explain-verdict')).toContainText('На шаге 5');
+  await section.getByRole('button', { name: 'Внутри множества' }).click();
+  await expect(section.locator('.explain-verdict')).toContainText('ни разу не превысил 2');
+
+  // Смена степени d меняет и текст шагов, и саму орбиту.
+  await section.getByRole('button', { name: 'Быстро убегает' }).click();
+  await page.getByRole('group', { name: 'Степень d' }).getByRole('button', { name: '3' }).click();
+  await expect(section.locator('.explain-steps')).toContainText('d = 3');
+  await expect(section.locator('.explain-verdict')).not.toContainText('На шаге 5');
+});
