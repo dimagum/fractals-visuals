@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { formatFixed, formatZoom, minus } from '../../src/dom';
 import { exportDimensions } from '../../src/export';
-import { FRACTALS, effectiveIterations, findFractal, parseSequence } from '../../src/fractals';
+import { FRACTALS, effectiveIterations, findFractal, minSpanFor, parseSequence } from '../../src/fractals';
 import { setLang } from '../../src/i18n';
 import { formatComplex } from '../../src/locations';
+import { fromDecimal, toNumber } from '../../src/precise';
 
 describe('форматирование чисел', () => {
   beforeEach(() => setLang('ru'));
@@ -57,7 +58,15 @@ describe('параметры фракталов', () => {
       expect(def.home.span).toBeGreaterThanOrEqual(def.minSpan);
       expect(def.home.span).toBeLessThanOrEqual(def.maxSpan);
       for (const loc of def.locations) {
-        expect(loc.view.span, `${def.id}: ${loc.name}`).toBeGreaterThanOrEqual(def.minSpan);
+        const where = `${def.id}: ${loc.name.ru}`;
+        expect(loc.view.span, where).toBeGreaterThanOrEqual(minSpanFor(def, loc.power ?? 2));
+        // Глубже предела double центр обязан быть задан строкой.
+        if (loc.view.span < 1e-13) expect(loc.precise, where).toBeDefined();
+        if (loc.precise) {
+          expect(fromDecimal(loc.precise.x), where).not.toBeNull();
+          expect(Math.abs(toNumber(fromDecimal(loc.precise.x)!) - loc.view.cx), where).toBeLessThan(1e-12);
+          expect(Math.abs(toNumber(fromDecimal(loc.precise.y)!) - loc.view.cy), where).toBeLessThan(1e-12);
+        }
       }
     }
   });

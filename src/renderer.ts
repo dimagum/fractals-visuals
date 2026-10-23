@@ -1,7 +1,16 @@
-import { effectiveIterations, parseSequence, type FractalDef, type FractalParams, type View } from './fractals';
+import {
+  PERTURB_BELOW,
+  effectiveIterations,
+  parseSequence,
+  supportsPerturb,
+  type FractalDef,
+  type FractalParams,
+  type View,
+} from './fractals';
 import { bakeGradient, hexToRgb, type PaletteColors } from './palettes';
 import { MAX_DEGREE, findPolynomial, findRoots, type Complex } from './polynomial';
-import { BLIT_FRAGMENT, VERTEX_SHADER, fragmentSource } from './shaders';
+import type { ReferenceOrbit } from './reference';
+import { BLIT_FRAGMENT, VERTEX_SHADER, fragmentSource, type PrecisionMode } from './shaders';
 
 export interface DrawParams {
   fractal: FractalDef;
@@ -15,6 +24,11 @@ export interface DrawParams {
   /** 0 = A, 1 = B. */
   sequence: number[];
   poly: { coeffs: number[]; roots: Complex[] };
+  /**
+   * Опорная орбита для теории возмущений и смещение центра кадра от опорной
+   * точки (уже посчитанное в произвольной точности и сведённое к double).
+   */
+  perturb?: { orbit: ReferenceOrbit; offset: [number, number] } | null;
 }
 
 const rootsCache = new Map<string, Complex[]>();
@@ -61,6 +75,7 @@ const FRACTAL_UNIFORMS = [
   'u_palette',
   'u_inside',
   'u_param',
+  'u_paramLo',
   'u_power',
   'u_seq',
   'u_seqLen',
@@ -68,7 +83,17 @@ const FRACTAL_UNIFORMS = [
   'u_degree',
   'u_roots',
   'u_zero',
+  'u_ref',
+  'u_refLen',
+  'u_refWidth',
+  'u_refOffset',
+  'u_pixelScaled',
+  'u_scale',
+  'u_invScale',
 ];
+
+/** Ширина текстуры опорной орбиты: 4096 точек в строке, дальше — следующие строки. */
+const REF_WIDTH = 4096;
 
 const MAX_SEQUENCE = 16;
 
@@ -79,6 +104,22 @@ const MAX_SEQUENCE = 16;
 export function needsDeep(fractal: FractalDef, view: View, heightPx: number): boolean {
   const magnitude = Math.max(1, Math.abs(view.cx) + Math.abs(view.cy));
   return fractal.deep && view.span / heightPx < 4e-6 * magnitude;
+}
+
+/** Нужна ли теория возмущений: глубже PERTURB_BELOW и только для d = 2. */
+export function wantsPerturb(fractal: FractalDef, view: View, power: number): boolean {
+  return supportsPerturb(fractal, power) && view.span < PERTURB_BELOW;
+}
+
+/**
+ * Режим точности кадра: fp32 → df64 → возмущения. Если опорная орбита ещё
+ * не готова, глубокий кадр временно рисуется df64 (грубее, но не пусто).
+ */
+export function precisionMode(params: DrawParams, heightPx: number): PrecisionMode {
+  const { fractal, view } = params;
+  if (!needsDeep(fractal, view, heightPx)) return 'fp32';
+  if (params.perturb && wantsPerturb(fractal, view, params.power)) return 'ptb';
+  return 'df64';
 }
 
 /**
@@ -99,6 +140,8 @@ export class Renderer {
   private readonly coeffBuffer = new Float32Array(MAX_DEGREE + 1);
   private readonly rootBuffer = new Float32Array(MAX_DEGREE * 2);
   private readonly syncPixel = new Uint8Array(4);
+  private refTex: WebGLTexture | null = null;
+  private refOrbit: ReferenceOrbit | null = null;
 
   constructor(readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', {
@@ -177,8 +220,8 @@ export class Renderer {
   private drawFractal(params: DrawParams, width: number, height: number): void {
     const gl = this.gl;
     const { fractal, view } = params;
-    const deep = needsDeep(fractal, view, height);
-    const prog = this.program(fractal, deep);
+    const mode = precisionMode(params, height);
+    const prog = this.program(fractal, mode);
     const u = prog.uniforms;
     gl.useProgram(prog.program);
 
@@ -192,7 +235,11 @@ export class Renderer {
     gl.uniform1i(u.get('u_maxIter')!, params.iterations);
     gl.uniform1f(u.get('u_density')!, params.density * fractal.colorScale);
     gl.uniform3f(u.get('u_inside')!, ...this.inside);
-    gl.uniform2f(u.get('u_param')!, params.param[0], params.param[1]);
+    // c передаётся парой hi + lo: на глубоком зуме Жюлиа ошибка float32 в c (~10⁻⁸)
+    // уже меняет само множество.
+    const [pxHi, pyHi] = [Math.fround(params.param[0]), Math.fround(params.param[1])];
+    gl.uniform2f(u.get('u_param')!, pxHi, pyHi);
+    gl.uniform2f(u.get('u_paramLo')!, params.param[0] - pxHi, params.param[1] - pyHi);
     gl.uniform1i(u.get('u_power')!, params.power);
 
     this.coeffBuffer.fill(0);
@@ -214,14 +261,61 @@ export class Renderer {
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTex);
     gl.uniform1i(u.get('u_palette')!, 0);
 
+    if (mode === 'ptb' && params.perturb) {
+      this.bindReference(params.perturb.orbit);
+      // Масштаб S = 2ᵏ ≈ высота кадра: отклонения в шейдере хранятся как δ / S.
+      const k = Math.floor(Math.log2(view.span));
+      const scale = 2 ** k;
+      const [ox, oy] = params.perturb.offset.map((v) => v / scale) as [number, number];
+      const hx = Math.fround(ox);
+      const hy = Math.fround(oy);
+      gl.uniform1i(u.get('u_ref')!, 1);
+      gl.uniform1i(u.get('u_refLen')!, params.perturb.orbit.length);
+      gl.uniform1i(u.get('u_refWidth')!, REF_WIDTH);
+      gl.uniform4f(u.get('u_refOffset')!, hx, hy, ox - hx, oy - hy);
+      gl.uniform1f(u.get('u_pixelScaled')!, view.span / height / scale);
+      gl.uniform1f(u.get('u_scale')!, scale);
+      gl.uniform1f(u.get('u_invScale')!, 1 / scale);
+    }
+
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  private program(fractal: FractalDef, deep: boolean): Program {
-    const key = `${fractal.id}:${deep ? 'df64' : 'fp32'}`;
+  /** Загружает опорную орбиту в текстуру RGBA32F — hi и lo для Re и Im (один раз на орбиту). */
+  private bindReference(orbit: ReferenceOrbit): void {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE1);
+    if (!this.refTex) {
+      this.refTex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, this.refTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.refTex);
+    if (orbit !== this.refOrbit) {
+      const width = Math.min(REF_WIDTH, orbit.length);
+      const rows = Math.ceil(orbit.length / REF_WIDTH);
+      const data = new Float32Array(width * rows * 4);
+      for (let n = 0; n < orbit.length; n++) {
+        const x = orbit.data[2 * n]!;
+        const y = orbit.data[2 * n + 1]!;
+        const hx = Math.fround(x);
+        const hy = Math.fround(y);
+        data.set([hx, hy, x - hx, y - hy], 4 * n);
+      }
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, width, rows, 0, gl.RGBA, gl.FLOAT, data);
+      this.refOrbit = orbit;
+    }
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
+  private program(fractal: FractalDef, mode: PrecisionMode): Program {
+    const key = `${fractal.id}:${mode}`;
     let prog = this.programs.get(key);
     if (!prog) {
-      prog = this.compile(fragmentSource(fractal.id, deep), FRACTAL_UNIFORMS);
+      prog = this.compile(fragmentSource(fractal.id, mode), FRACTAL_UNIFORMS);
       this.programs.set(key, prog);
     }
     return prog;
