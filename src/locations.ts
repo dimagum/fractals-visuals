@@ -1,6 +1,7 @@
-import { formatFixed, formatZoom, h } from './dom';
+import { formatFixed, formatZoom, h, minus } from './dom';
 import type { Control, FractalDef, Location } from './fractals';
 import { findPolynomial } from './polynomial';
+import { fromDecimal, toDecimal } from './precise';
 import { t, tr } from './i18n';
 
 /** Подпись для параметра c множества Жюлиа: «−0.123 + 0.745i». */
@@ -55,7 +56,12 @@ export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) 
   });
 
   const rowFor = (loc: Location): HTMLTableRowElement => {
-    const decimals = Math.min(15, Math.max(2, Math.ceil(-Math.log10(loc.view.span)) + 2));
+    const decimals = Math.max(2, Math.ceil(-Math.log10(loc.view.span)) + 2);
+    // У глубоких мест центр задан строкой: double хранит лишь ~16 знаков.
+    const coord = (value: number, precise?: string): string => {
+      const exact = precise ? fromDecimal(precise) : null;
+      return exact === null ? formatFixed(value, Math.min(15, decimals)) : minus(toDecimal(exact, decimals));
+    };
     const zoom = zoomOf(loc);
     const param = paramCol?.cell(loc) ?? null;
     const row = h(
@@ -66,7 +72,7 @@ export function createLocationsTable(def: FractalDef, onSelect: (loc: Location) 
         h(
           'td',
           { class: 'td-mono td-center' },
-          `${formatFixed(loc.view.cx, decimals)}, ${formatFixed(loc.view.cy, decimals)}`,
+          `${coord(loc.view.cx, loc.precise?.x)}, ${coord(loc.view.cy, loc.precise?.y)}`,
         ),
       paramHeader ? h('td', { class: 'td-mono td-param' }, param ?? '—') : null,
       showZoom &&

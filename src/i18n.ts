@@ -18,6 +18,8 @@ const listeners = new Set<() => void>();
 let lang: Lang = detect();
 
 function detect(): Lang {
+  // Вне браузера (юнит-тесты в Node) хранилища и языка интерфейса нет.
+  if (typeof window === 'undefined') return 'ru';
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === 'ru' || stored === 'en') return stored;
@@ -36,7 +38,7 @@ export function setLang(next: Lang): void {
   if (next === lang) return;
   lang = next;
   try {
-    localStorage.setItem(STORAGE_KEY, next);
+    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, next);
   } catch {
     // Не запомнится между визитами — не страшно.
   }
@@ -107,6 +109,14 @@ const UI = {
   iterations: { ru: 'Итерации', en: 'Iterations' },
   precisionDf64: { ru: 'Эмуляция double: две float32 на координату', en: 'Emulated double: two float32 per coordinate' },
   precisionFp32: { ru: 'Обычная одинарная точность GPU', en: 'Plain single GPU precision' },
+  precisionPtb: {
+    ru: 'Теория возмущений: опорная орбита в произвольной точности, на GPU — отклонения от неё',
+    en: 'Perturbation theory: an arbitrary-precision reference orbit, with deviations from it on the GPU',
+  },
+  precisionPtbWaiting: {
+    ru: 'Считаю опорную орбиту в произвольной точности…',
+    en: 'Computing the arbitrary-precision reference orbit…',
+  },
   precisionLimit: { ru: 'Предел точности', en: 'Precision limit' },
   zoomIn: { ru: 'Приблизить', en: 'Zoom in' },
   zoomOut: { ru: 'Отдалить', en: 'Zoom out' },

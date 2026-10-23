@@ -1,5 +1,5 @@
-import { computeTicks, drawGrid, maxCharsFor, renderAxisLabels, stepDecimals, type Frame } from './axes';
-import { formatFixed, formatInt, formatZoom, h } from './dom';
+import { computeTicks, drawGrid, maxCharsFor, renderAxisLabels, type Frame } from './axes';
+import { formatFixed, formatInt, formatZoom, h, minus } from './dom';
 import { EXPORT_SIZES, downloadBlob, exportDimensions, renderPng, type ExportJob, type ExportSize } from './export';
 import { easeInOutCubic, flightPath } from './flight';
 import {
@@ -8,6 +8,7 @@ import {
   defaultParams,
   effectiveIterations,
   formulaText,
+  minSpanFor,
   parseSequence,
   type FractalDef,
   type FractalParams,
@@ -17,13 +18,27 @@ import {
 import { createExplanation } from './explanation';
 import { createLocationsTable, formatComplex } from './locations';
 import { NEWTON_POLYNOMIALS, findPolynomial } from './polynomial';
-import { Renderer, drawParamsFor, needsDeep, type DrawParams } from './renderer';
+import { ReferenceManager } from './perturb';
+import {
+  difference,
+  fromDecimal,
+  fromNumber,
+  offsetPoint,
+  pointFromNumbers,
+  toDecimal,
+  toNumber,
+  type PrecisePoint,
+} from './precise';
+import { Renderer, drawParamsFor, precisionMode, wantsPerturb, type DrawParams } from './renderer';
 import { replaceQuery } from './router';
 import { colors, subscribe, writePaletteQuery } from './store';
 import { t, tr } from './i18n';
 
 interface ViewerState {
+  /** Приближённый вид в double: для осей, масштаба и всего, где хватает 16 знаков. */
   view: View;
+  /** Точный центр — источник истины; view.cx и view.cy — его округления. */
+  center: PrecisePoint;
   iterBase: number;
   density: number;
   params: FractalParams;
@@ -47,6 +62,15 @@ const pickerView = (power: number): View =>
 const MODIFIER_LABEL = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+
+/** Куда лететь камере: точный центр и высота кадра. */
+interface Target {
+  center: PrecisePoint;
+  span: number;
+}
+
+/** «-0.743000» → «-0.743»: хвостовые нули в адресе ни к чему. */
+const trimDecimal = (text: string): string => (text.includes('.') ? text.replace(/0+$/, '').replace(/\.$/, '') : text);
 const toSlider = (v: number, [lo, hi]: [number, number]): number =>
   Math.round((Math.log(v / lo) / Math.log(hi / lo)) * SLIDER_MAX);
 const fromSlider = (s: number, [lo, hi]: [number, number]): number => lo * (hi / lo) ** (s / SLIDER_MAX);
@@ -67,12 +91,17 @@ function initialState(def: FractalDef, q: URLSearchParams): ViewerState {
   if (sequence && parseSequence(sequence)) params.sequence = sequence;
   const poly = q.get('poly');
   if (poly && NEWTON_POLYNOMIALS.some((p) => p.id === poly)) params.poly = poly;
+  const center: PrecisePoint = {
+    x: fromDecimal(q.get('x') ?? '') ?? fromNumber(def.home.cx),
+    y: fromDecimal(q.get('y') ?? '') ?? fromNumber(def.home.cy),
+  };
   return {
     view: {
-      cx: num('x') ?? def.home.cx,
-      cy: num('y') ?? def.home.cy,
-      span: span && span > 0 ? clamp(span, def.minSpan, def.maxSpan) : def.home.span,
+      cx: toNumber(center.x),
+      cy: toNumber(center.y),
+      span: span && span > 0 ? clamp(span, minSpanFor(def, params.power), def.maxSpan) : def.home.span,
     },
+    center,
     iterBase: clamp(Math.round(num('it') ?? def.iterations.base), def.iterations.min, def.iterations.max),
     density: clamp(num('d') ?? 1, ...DENSITY_RANGE),
     params,
@@ -210,7 +239,8 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       juliaPicker?.redraw();
       // На обзорном масштабе центрируем: при d ≥ 3 множество симметрично относительно нуля,
       // а исходный вид смещён под тело обычного Мандельброта. Приближенный вид не трогаем.
-      if (state.view.span >= def.home.span / 1.5) flyTo(homeView());
+      // Глубже предела df64 для d ≠ 2 возмущения не работают — тогда тоже возвращаемся.
+      if (state.view.span >= def.home.span / 1.5 || state.view.span < minSpanFor(def, power)) flyTo(homeView());
       else requestFrame(false);
     });
     paramFields.push(powerGroup.el);
@@ -238,7 +268,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     select.addEventListener('change', () => {
       setParams({ poly: select.value });
       updateFormula();
-      flyTo({ cx: 0, cy: 0, span: findPolynomial(select.value).span });
+      flyTo({ center: pointFromNumbers(0, 0), span: findPolynomial(select.value).span });
     });
     polySelect = select;
     paramFields.push(h('label', { class: 'field field-poly' }, h('span', { class: 'field-label' }, t('polynomial')), select));
@@ -275,8 +305,12 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   controls.prepend(...paramFields);
 
   /** Исходный вид с учётом степени: для d > 2 — по центру. */
-  function homeView(): View {
-    return has('power') && state.params.power !== 2 ? { ...def.home, cx: 0, cy: 0 } : def.home;
+  function homeView(): Target {
+    const centered = has('power') && state.params.power !== 2;
+    return {
+      center: centered ? pointFromNumbers(0, 0) : pointFromNumbers(def.home.cx, def.home.cy),
+      span: def.home.span,
+    };
   }
 
   /** Подтягивает все ручки к state.params — после клика по известному месту. */
@@ -385,8 +419,24 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     return effectiveIterations(def, state.iterBase, state.view.span);
   }
 
+  // Опорные орбиты для теории возмущений; готовая орбита сразу перерисовывает кадр.
+  const references = new ReferenceManager(() => requestFrame(false));
+  disposers.push(() => references.dispose());
+
   function drawParams(): DrawParams {
-    return drawParamsFor(def, state.view, state.params, state.iterBase, state.density);
+    const params = drawParamsFor(def, state.view, state.params, state.iterBase, state.density);
+    if (wantsPerturb(def, state.view, params.power)) {
+      const julia = def.id === 'julia';
+      const orbit = references.get({
+        kind: julia ? 'julia' : 'mandelbrot',
+        center: state.center,
+        param: julia ? pointFromNumbers(...state.params.param) : pointFromNumbers(0, 0),
+        span: state.view.span,
+        iterations: params.iterations,
+      });
+      params.perturb = orbit ? { orbit, offset: difference(state.center, orbit.center) } : null;
+    }
+    return params;
   }
 
   /** Запросить перерисовку: интерактивную (быстро, грубо) или финальную. */
@@ -457,8 +507,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   }
 
   function currentFrame(): Frame {
-    const { cx, cy, span } = state.view;
-    return { cx, cy, unit: span / cssH, width: cssW, height: cssH, flip };
+    return { center: state.center, unit: state.view.span / cssH, width: cssW, height: cssH, flip };
   }
 
   function updateOverlay(): void {
@@ -466,23 +515,25 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     if (!cssW || !cssH) return;
     const f = currentFrame();
     const ticks = computeTicks(f);
-    const decimals = stepDecimals(ticks.step);
-    renderAxisLabels(yAxis, ticks.y, decimals, maxCharsFor(yAxis.clientWidth - 10), 'y', cssH);
-    renderAxisLabels(xAxis, ticks.x, decimals, maxCharsFor(ticks.step / f.unit - 14), 'x', cssW);
+    renderAxisLabels(yAxis, ticks.y, maxCharsFor(yAxis.clientWidth - 10), 'y', cssH);
+    renderAxisLabels(xAxis, ticks.x, maxCharsFor(ticks.step / f.unit - 14), 'x', cssW);
     if (state.grid) drawGrid(gridCtx, ticks, dpr);
     else gridCtx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);
 
-    const centerDecimals = clamp(Math.ceil(-Math.log10(f.unit)), 2, 16);
-    reValue.textContent = formatFixed(state.view.cx, centerDecimals);
-    imValue.textContent = formatFixed(state.view.cy, centerDecimals);
+    // Ровно столько знаков, чтобы различать соседние пиксели; на глубоком зуме — десятки.
+    const centerDecimals = clamp(Math.ceil(-Math.log10(f.unit)), 2, 40);
+    reValue.textContent = minus(toDecimal(state.center.x, centerDecimals));
+    imValue.textContent = minus(toDecimal(state.center.y, centerDecimals));
     zoomValue.textContent = formatZoom(def.home.span / state.view.span);
     iterValue.textContent = formatInt(iterations());
-    const deep = needsDeep(def, state.view, canvas.height || cssH);
-    precisionChip.textContent = deep ? 'df64' : 'fp32';
-    precisionChip.title = deep
-      ? t('precisionDf64')
-      : t('precisionFp32');
-    limitChip.hidden = state.view.span > def.minSpan * 1.001;
+    const params = drawParams();
+    const mode = precisionMode(params, canvas.height || cssH);
+    const waiting = params.perturb === null;
+    precisionChip.textContent = waiting ? 'ptb…' : mode;
+    precisionChip.title = waiting
+      ? t('precisionPtbWaiting')
+      : t(mode === 'ptb' ? 'precisionPtb' : mode === 'df64' ? 'precisionDf64' : 'precisionFp32');
+    limitChip.hidden = state.view.span > minSpanFor(def, state.params.power) * 1.001;
   }
 
   function resize(): void {
@@ -498,21 +549,26 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   }
 
   // ---------- Навигация ----------
-  function toPlane(px: number, py: number): [number, number] {
-    const unit = state.view.span / cssH;
-    return [state.view.cx + (px - cssW / 2) * unit, state.view.cy + (cssH / 2 - py) * unit * flip];
+  // Все движения — это сдвиги точного центра на небольшие double-смещения:
+  // так на любой глубине пиксель сдвига не теряется в округлении.
+  function setCenter(center: PrecisePoint, span = state.view.span): void {
+    state.center = center;
+    state.view = { cx: toNumber(center.x), cy: toNumber(center.y), span };
   }
 
-  function zoomedView(px: number, py: number, factor: number): View {
-    const [x, y] = toPlane(px, py);
-    const span = clamp(state.view.span * factor, def.minSpan, def.maxSpan);
-    const unit = span / cssH;
-    return { cx: x - (px - cssW / 2) * unit, cy: y - (cssH / 2 - py) * unit * flip, span };
+  /** Вид после зума с коэффициентом factor вокруг точки (px, py) экрана: она остаётся под курсором. */
+  function zoomTarget(px: number, py: number, factor: number): Target {
+    const span = clamp(state.view.span * factor, minSpanFor(def, state.params.power), def.maxSpan);
+    const shift = (state.view.span - span) / cssH;
+    return {
+      center: offsetPoint(state.center, (px - cssW / 2) * shift, (cssH / 2 - py) * shift * flip),
+      span,
+    };
   }
 
   function pan(dx: number, dy: number): void {
     const unit = state.view.span / cssH;
-    state.view = { ...state.view, cx: state.view.cx - dx * unit, cy: state.view.cy + dy * unit * flip };
+    setCenter(offsetPoint(state.center, -dx * unit, dy * unit * flip));
   }
 
   let flight = 0;
@@ -521,18 +577,27 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     flight = 0;
   }
 
-  function flyTo(target: View, maxMs = 2800): void {
+  /**
+   * Перелёт считается в координатах относительно стартовой точки: разность
+   * центров берётся точно и только потом сводится к double, поэтому траектория
+   * ван Вейка корректна даже между точками, неразличимыми в double.
+   */
+  function flyTo(target: Target, maxMs = 2800): void {
     stopFlight();
-    const path = flightPath(state.view, target);
+    const from = state.center;
+    const [dx, dy] = difference(target.center, from);
+    const path = flightPath({ cx: 0, cy: 0, span: state.view.span }, { cx: dx, cy: dy, span: target.span });
     const duration = clamp(Math.abs(path.length) * 300, 250, maxMs);
     const start = performance.now();
     const step = (now: number): void => {
       const t = Math.min(1, (now - start) / duration);
-      state.view = t < 1 ? path.at(easeInOutCubic(t)) : { ...target };
       if (t < 1) {
+        const v = path.at(easeInOutCubic(t));
+        setCenter(offsetPoint(from, v.cx, v.cy), v.span);
         requestFrame(true);
         flight = requestAnimationFrame(step);
       } else {
+        setCenter(target.center, target.span);
         flight = 0;
         settle();
       }
@@ -541,7 +606,7 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
   }
 
   function zoomBy(factor: number): void {
-    flyTo(zoomedView(cssW / 2, cssH / 2, factor), 400);
+    flyTo(zoomTarget(cssW / 2, cssH / 2, factor), 400);
   }
 
   function applyLocation(loc: Location): void {
@@ -554,7 +619,11 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       poly: loc.poly ?? defaults.poly,
     });
     syncControls();
-    flyTo(loc.view);
+    const precise = loc.precise && { x: fromDecimal(loc.precise.x), y: fromDecimal(loc.precise.y) };
+    flyTo({
+      center: precise?.x != null && precise.y != null ? { x: precise.x, y: precise.y } : pointFromNumbers(loc.view.cx, loc.view.cy),
+      span: Math.max(loc.view.span, minSpanFor(def, state.params.power)),
+    });
     area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
@@ -618,7 +687,8 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
         const after = Math.hypot(cur.x - other.x, cur.y - other.y);
         pan((cur.x - prev.x) / 2, (cur.y - prev.y) / 2);
         if (before > 0 && after > 0) {
-          state.view = zoomedView((cur.x + other.x) / 2, (cur.y + other.y) / 2, before / after);
+          const target = zoomTarget((cur.x + other.x) / 2, (cur.y + other.y) / 2, before / after);
+          setCenter(target.center, target.span);
         }
       }
     }
@@ -648,7 +718,8 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
       // Мелкие дельты — тачпад (щипок, прокрутка двумя пальцами), крупные — щелчки колеса мыши.
       const speed = Math.abs(delta) < 40 ? 0.01 : 0.002;
       const { x, y } = local(e);
-      state.view = zoomedView(x, y, Math.exp(clamp(delta * speed, -0.7, 0.7)));
+      const target = zoomTarget(x, y, Math.exp(clamp(delta * speed, -0.7, 0.7)));
+      setCenter(target.center, target.span);
       requestFrame(true);
     },
     { passive: false },
@@ -656,17 +727,19 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
 
   area.addEventListener('dblclick', (e) => {
     const { x, y } = local(e);
-    flyTo(zoomedView(x, y, e.shiftKey ? 2 : 0.5), 450);
+    flyTo(zoomTarget(x, y, e.shiftKey ? 2 : 0.5), 450);
   });
 
   area.addEventListener('keydown', (e) => {
-    const stepX = cssW * 0.1;
-    const stepY = cssH * 0.1;
+    // Шаг стрелки — десятая часть кадра.
+    const stepX = state.view.span * (cssW / cssH) * 0.1;
+    const stepY = state.view.span * 0.1 * flip;
+    const shiftBy = (dx: number, dy: number): Target => ({ center: offsetPoint(state.center, dx, dy), span: state.view.span });
     const actions: Record<string, () => void> = {
-      ArrowLeft: () => flyTo({ ...state.view, ...offset(-stepX, 0) }, 200),
-      ArrowRight: () => flyTo({ ...state.view, ...offset(stepX, 0) }, 200),
-      ArrowUp: () => flyTo({ ...state.view, ...offset(0, -stepY) }, 200),
-      ArrowDown: () => flyTo({ ...state.view, ...offset(0, stepY) }, 200),
+      ArrowLeft: () => flyTo(shiftBy(-stepX, 0), 200),
+      ArrowRight: () => flyTo(shiftBy(stepX, 0), 200),
+      ArrowUp: () => flyTo(shiftBy(0, stepY), 200),
+      ArrowDown: () => flyTo(shiftBy(0, -stepY), 200),
       '+': () => zoomBy(0.5),
       '=': () => zoomBy(0.5),
       '-': () => zoomBy(2),
@@ -679,18 +752,13 @@ export function mountViewer(root: HTMLElement, def: FractalDef, query: URLSearch
     }
   });
 
-  /** Центр после сдвига камеры на (dx, dy) CSS-пикселей. */
-  function offset(dx: number, dy: number): { cx: number; cy: number } {
-    const [cx, cy] = toPlane(cssW / 2 + dx, cssH / 2 + dy);
-    return { cx, cy };
-  }
-
   // ---------- Адрес ----------
   function syncUrl(): void {
     const q = new URLSearchParams();
-    const decimals = clamp(Math.ceil(-Math.log10(state.view.span)) + 5, 4, 18);
-    q.set('x', String(Number(state.view.cx.toFixed(decimals))));
-    q.set('y', String(Number(state.view.cy.toFixed(decimals))));
+    // Координаты пишем десятичной строкой нужной длины — на глубоком зуме это 35+ знаков.
+    const decimals = clamp(Math.ceil(-Math.log10(state.view.span)) + 5, 4, 60);
+    q.set('x', trimDecimal(toDecimal(state.center.x, decimals)));
+    q.set('y', trimDecimal(toDecimal(state.center.y, decimals)));
     q.set('s', state.view.span.toPrecision(4));
     if (state.iterBase !== def.iterations.base) q.set('it', String(state.iterBase));
     if (Math.abs(state.density - 1) > 0.005) q.set('d', state.density.toFixed(2));

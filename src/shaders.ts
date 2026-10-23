@@ -29,6 +29,7 @@ uniform float u_density;    // плотность окраски
 uniform sampler2D u_palette;
 uniform vec3 u_inside;
 uniform vec2 u_param;       // c для Жюлиа или (p, q) для Феникса
+uniform vec2 u_paramLo;     // младшая часть c для df64: c = u_param + u_paramLo
 uniform int u_power;        // степень d в zᵈ + c
 uniform int u_seq[16];      // последовательность Ляпунова: 0 = A, 1 = B
 uniform int u_seqLen;
@@ -178,7 +179,7 @@ void main() {
 function escapeDf64(variant: EscapeVariant): string {
   const init =
     variant === 'julia'
-      ? 'vec2 zx = px; vec2 zy = py; vec2 cx = vec2(u_param.x, 0.0); vec2 cy = vec2(u_param.y, 0.0);'
+      ? 'vec2 zx = px; vec2 zy = py; vec2 cx = vec2(u_param.x, u_paramLo.x); vec2 cy = vec2(u_param.y, u_paramLo.y);'
       : 'vec2 zx = vec2(0.0); vec2 zy = vec2(0.0); vec2 cx = px; vec2 cy = py;';
   const cross = variant === 'burning-ship' ? 'dfAbs(dfMul(zx, zy))' : 'dfMul(zx, zy)';
   const crossSign = variant === 'tricorn' ? '-2.0' : '2.0';
@@ -316,13 +317,100 @@ void main() {
 }
 `;
 
-export function fragmentSource(id: FractalId, deep: boolean): string {
+/**
+ * Теория возмущений (Мандельброт и Жюлиа, d = 2). Опорная орбита Zₙ одной
+ * точки посчитана на CPU в произвольной точности и лежит в текстуре; пиксель
+ * считает лишь своё отклонение δzₙ = zₙ − Zₙ:
+ *
+ *   δzₙ₊₁ = 2·Zₙ·δzₙ + δzₙ² + δc = (2·Zₙ + δzₙ)·δzₙ + δc.
+ *
+ * Арифметика — df64: на ребейзинге z = Z + δz вычитаются близкие числа, и
+ * точности float32 не хватает (сверка с BigInt-итерацией это показала).
+ * Отклонения хранятся в масштабе S = 2ᵏ ≈ высоте кадра: δ' = δ / S. Так на
+ * ×10³⁰ младшие части df64 не уходят в денормализованные числа. Умножение на
+ * степень двойки точное.
+ *
+ * Ребейзинг (Чжоурань, 2021): если орбита пикселя подошла к нулю ближе, чем
+ * к опорной, или опорная кончилась, опора начинается заново с Z₀ — так не
+ * появляются «глитчи» и годится любая опорная точка.
+ */
+function perturbSource(variant: 'mandelbrot' | 'julia'): string {
+  // Мандельброт: δz₀ = 0, δc = смещение. Жюлиа: δz₀ = смещение, δc = 0.
+  const init =
+    variant === 'julia'
+      ? 'vec2 dzx = dpx; vec2 dzy = dpy; vec2 dcx = vec2(0.0); vec2 dcy = vec2(0.0);'
+      : 'vec2 dzx = vec2(0.0); vec2 dzy = vec2(0.0); vec2 dcx = dpx; vec2 dcy = dpy;';
+  return `${PRELUDE}${DF64}
+uniform highp sampler2D u_ref;  // Zₙ: RGBA32F = (Re hi, Im hi, Re lo, Im lo)
+uniform int u_refLen;
+uniform int u_refWidth;
+uniform vec4 u_refOffset;       // (центр кадра − опорная точка) / S: (x hi, y hi, x lo, y lo)
+uniform float u_pixelScaled;    // размер пикселя / S
+uniform float u_scale;          // S = 2ᵏ
+uniform float u_invScale;       // 1 / S
+
+void refAt(int m, out vec2 zx, out vec2 zy) {
+  vec4 t = texelFetch(u_ref, ivec2(m % u_refWidth, m / u_refWidth), 0);
+  zx = vec2(t.x, t.z);
+  zy = vec2(t.y, t.w);
+}
+
+float normInf(vec2 x, vec2 y) {
+  return max(abs(x.x), abs(y.x));
+}
+
+void main() {
+  vec2 o = (gl_FragCoord.xy - 0.5 * u_resolution) * u_pixelScaled;
+  o.y *= u_flip;
+  vec2 dpx = dfAdd(vec2(u_refOffset.x, u_refOffset.z), vec2(o.x, 0.0));
+  vec2 dpy = dfAdd(vec2(u_refOffset.y, u_refOffset.w), vec2(o.y, 0.0));
+  ${init}
+  vec2 z0x, z0y;
+  refAt(0, z0x, z0y);
+  vec2 Zx = z0x;
+  vec2 Zy = z0y;
+  int m = 0;
+  for (int i = 0; i < u_maxIter; i++) {
+    // (2Z + S·δz') · δz' + δc'
+    vec2 ax = dfAdd(2.0 * Zx, u_scale * dzx);
+    vec2 ay = dfAdd(2.0 * Zy, u_scale * dzy);
+    vec2 nx = dfSub(dfMul(ax, dzx), dfMul(ay, dzy));
+    vec2 ny = dfAdd(dfMul(ax, dzy), dfMul(ay, dzx));
+    dzx = dfAdd(nx, dcx);
+    dzy = dfAdd(ny, dcy);
+    m++;
+    refAt(m, Zx, Zy);
+    vec2 zx = dfAdd(Zx, u_scale * dzx);
+    vec2 zy = dfAdd(Zy, u_scale * dzy);
+    float r2 = zx.x * zx.x + zy.x * zy.x;
+    if (r2 > BAILOUT2) {
+      outColor = vec4(escapeColor(smoothIter(float(i), r2)), 1.0);
+      return;
+    }
+    if (normInf(zx, zy) < u_scale * normInf(dzx, dzy) || m >= u_refLen - 1) {
+      dzx = u_invScale * dfSub(zx, z0x);
+      dzy = u_invScale * dfSub(zy, z0y);
+      m = 0;
+      Zx = z0x;
+      Zy = z0y;
+    }
+  }
+  outColor = vec4(u_inside, 1.0);
+}
+`;
+}
+
+export type PrecisionMode = 'fp32' | 'df64' | 'ptb';
+
+export function fragmentSource(id: FractalId, mode: PrecisionMode): string {
   switch (id) {
     case 'mandelbrot':
     case 'julia':
+      if (mode === 'ptb') return perturbSource(id);
+      return mode === 'df64' ? escapeDf64(id) : escapeFp32(id);
     case 'burning-ship':
     case 'tricorn':
-      return deep ? escapeDf64(id) : escapeFp32(id);
+      return mode === 'df64' ? escapeDf64(id) : escapeFp32(id);
     case 'phoenix':
       return PHOENIX;
     case 'newton':

@@ -37,6 +37,8 @@ export interface View {
 export interface Location extends Partial<FractalParams> {
   name: L10n;
   view: View;
+  /** Центр в десятичной записи — для мест глубже, чем помещается в double. */
+  precise?: { x: string; y: string };
 }
 
 export interface FractalDef {
@@ -60,6 +62,8 @@ export interface FractalDef {
   maxSpan: number;
   /** Есть вариант шейдера с эмуляцией double (double-float) для глубокого зума. */
   deep: boolean;
+  /** Глубже ×10¹¹ — теория возмущений (только d = 2). */
+  perturb?: boolean;
   controls: Control[];
   defaultParam?: [number, number];
   defaultSequence?: string;
@@ -78,11 +82,12 @@ export const FRACTALS: FractalDef[] = [
     axes: ['Re', 'Im'],
     home: { cx: -0.6, cy: 0, span: 2.6 },
     preview: { cx: -0.72, cy: 0, span: 2.75 },
-    iterations: { base: 200, min: 50, max: 5000, perOctave: 40 },
+    iterations: { base: 200, min: 50, max: 20000, perOctave: 40 },
     colorScale: 1,
     minSpan: 1e-11,
     maxSpan: 8,
     deep: true,
+    perturb: true,
     controls: ['power'],
     locations: [
       { name: { ru: 'Долина морских коньков', en: 'Seahorse Valley' }, view: { cx: -0.7453, cy: 0.1127, span: 0.0065 } },
@@ -98,6 +103,16 @@ export const FRACTALS: FractalDef[] = [
       { name: { ru: 'Мультиброт', en: 'Multibrot' }, power: 3, view: { cx: 0, cy: 0, span: 2.6 } },
       { name: { ru: 'Дендриты Мультиброта', en: 'Multibrot dendrites' }, power: 3, view: { cx: 0.3605109486626, cy: 0.7083173679287, span: 3e-8 } },
       { name: { ru: 'Мультиброт-пятилистник', en: 'Five-leaf Multibrot' }, power: 6, view: { cx: 0, cy: 0, span: 2.6 } },
+      {
+        name: { ru: 'Кружево на ×10²⁰', en: 'Lace at ×10²⁰' },
+        view: { cx: -0.7436438870409373, cy: 0.1318259042001621, span: 3.7e-20 },
+        precise: { x: '-0.7436438870409373436803486', y: '0.1318259042001620949862579' },
+      },
+      {
+        name: { ru: 'Остров Жюлиа на ×10²⁹', en: 'Julia island at ×10²⁹' },
+        view: { cx: -0.7436438870409373, cy: 0.1318259042001621, span: 9e-30 },
+        precise: { x: '-0.743643887040937343680763522440935057', y: '0.131825904200162094986509686489784173' },
+      },
     ],
   },
   {
@@ -111,11 +126,12 @@ export const FRACTALS: FractalDef[] = [
     axes: ['Re', 'Im'],
     home: { cx: 0, cy: 0, span: 2.4 },
     preview: { cx: 0, cy: 0, span: 2.9 },
-    iterations: { base: 250, min: 50, max: 5000, perOctave: 40 },
+    iterations: { base: 250, min: 50, max: 20000, perOctave: 40 },
     colorScale: 1,
     minSpan: 1e-11,
     maxSpan: 8,
     deep: true,
+    perturb: true,
     controls: ['julia', 'power'],
     defaultParam: [-0.8, 0.156],
     locations: [
@@ -128,6 +144,12 @@ export const FRACTALS: FractalDef[] = [
       { name: { ru: 'Молнии', en: 'Lightning' }, param: [-0.4, 0.6], view: { cx: 0, cy: 0, span: 2.4 } },
       { name: { ru: 'Кружево', en: 'Lace' }, param: [0.285, 0.01], view: { cx: 0, cy: 0, span: 2.4 } },
       { name: { ru: 'Галактики крупным планом', en: 'Galaxies up close' }, param: [-0.7269, 0.1889], view: { cx: 0.0777226063, cy: 0.0979433, span: 2e-6 } },
+      {
+        name: { ru: 'Ухо кролика на ×10²²', en: 'Rabbit’s ear at ×10²²' },
+        param: [-0.123, 0.745],
+        view: { cx: 0.3516456183334781, cy: 0.2109873710000868, span: 1e-22 },
+        precise: { x: '0.351645618333478088011314481899', y: '0.210987371000086844998687449492' },
+      },
     ],
   },
   {
@@ -283,6 +305,21 @@ export function defaultParams(def: FractalDef): FractalParams {
     sequence: def.defaultSequence ?? 'AB',
     poly: NEWTON_POLYNOMIALS[0]!.id,
   };
+}
+
+/** Предел зума с теорией возмущений: дальше отклонения уходят из диапазона float32. */
+export const PERTURB_MIN_SPAN = 1e-30;
+/** С какой высоты кадра включаются возмущения: глубже df64 уже не хватает точности. */
+export const PERTURB_BELOW = 1e-9;
+
+/** Можно ли этот фрактал с такими параметрами считать возмущениями. */
+export function supportsPerturb(def: FractalDef, power: number): boolean {
+  return def.perturb === true && power === 2;
+}
+
+/** Самый мелкий допустимый кадр: с возмущениями — до 10⁻³⁰, иначе предел df64. */
+export function minSpanFor(def: FractalDef, power: number): number {
+  return supportsPerturb(def, power) ? PERTURB_MIN_SPAN : def.minSpan;
 }
 
 /** Сколько итераций реально считать на данном масштабе. */
